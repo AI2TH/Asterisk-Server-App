@@ -25,6 +25,9 @@ Future<Map<String, dynamic>> vmExec(String cmd) async {
   return Map<String, dynamic>.from(result ?? {});
 }
 
+Future<String> getWifiIp() async =>
+    await _channel.invokeMethod<String>('getWifiIp') ?? '';
+
 // ---------------------------------------------------------------------------
 // API helpers (all HTTP goes through the Kotlin MethodChannel → OkHttp)
 // ---------------------------------------------------------------------------
@@ -58,12 +61,6 @@ Future<String> _apiGetText(String path) async =>
 // ---------------------------------------------------------------------------
 
 enum VmStatus { unknown, running, stopped, error }
-
-class SipEndpoints {
-  final String ws;
-  final String wss;
-  SipEndpoints({required this.ws, required this.wss});
-}
 
 class Extension {
   final String name;
@@ -113,6 +110,7 @@ class VmState extends ChangeNotifier {
   String wsEndpoint  = 'ws://127.0.0.1:8088/asterisk/sip';
   String wssEndpoint = 'wss://127.0.0.1:8089/asterisk/sip';
   String certFingerprint = '';
+  String wifiIp = '';
 
   List<Extension> extensions = [];
   List<ActiveCall> activeCalls = [];
@@ -123,6 +121,7 @@ class VmState extends ChangeNotifier {
   void startPolling() {
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _poll());
     _poll();
+    _fetchWifiIp();
   }
 
   @override
@@ -130,6 +129,15 @@ class VmState extends ChangeNotifier {
     _timer?.cancel();
     super.dispose();
   }
+
+  Future<void> _fetchWifiIp() async {
+    try {
+      wifiIp = await getWifiIp();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> refreshWifiIp() async => _fetchWifiIp();
 
   Future<void> _poll() async {
     try {

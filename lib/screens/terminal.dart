@@ -16,20 +16,32 @@ class _TerminalScreenState extends State<TerminalScreen> {
   final _buffer = StringBuffer();
   bool _loading = false;
 
-  Future<void> _run() async {
-    final cmd = _controller.text.trim();
-    if (cmd.isEmpty) return;
+  static const _quickCmds = [
+    'asterisk -rx "core show version"',
+    'asterisk -rx "core show channels"',
+    'asterisk -rx "pjsip show endpoints"',
+    'asterisk -rx "sip show peers"',
+    'asterisk -rx "core show uptime"',
+  ];
+
+  Future<void> _run([String? cmd]) async {
+    final command = (cmd ?? _controller.text).trim();
+    if (command.isEmpty) return;
     _controller.clear();
 
-    setState(() => _loading = true);
-    _buffer.write('\n\$ $cmd\n');
+    setState(() {
+      _loading = true;
+      _buffer.write('\n\$ $command\n');
+    });
 
     try {
-      final result = await vmExec(cmd);
+      final result = await vmExec(command);
       final stdout = result['stdout'] as String? ?? '';
       final stderr = result['stderr'] as String? ?? '';
       if (stdout.isNotEmpty) _buffer.write(stdout);
-      if (stderr.isNotEmpty) _buffer.write('[stderr] $stderr');
+      if (stderr.isNotEmpty) {
+        _buffer.write('\x1b[31m[stderr] $stderr\x1b[0m');
+      }
     } catch (e) {
       _buffer.write('[error] $e\n');
     }
@@ -37,7 +49,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
     setState(() => _loading = false);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        _scrollController
+            .jumpTo(_scrollController.position.maxScrollExtent);
       }
     });
   }
@@ -47,12 +60,17 @@ class _TerminalScreenState extends State<TerminalScreen> {
     try {
       final vm = context.read<VmState>();
       await vm.refreshLogs();
-      _buffer.write('\n--- Asterisk log tail ---\n');
+      _buffer.write('\n─── Asterisk log tail ───\n');
       _buffer.write(vm.logs);
     } catch (e) {
       _buffer.write('[error] $e\n');
     }
     setState(() => _loading = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      }
+    });
   }
 
   @override
@@ -63,11 +81,11 @@ class _TerminalScreenState extends State<TerminalScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.article_outlined),
-            tooltip: 'Load Asterisk Logs',
+            tooltip: 'Asterisk Logs',
             onPressed: _loadLogs,
           ),
           IconButton(
-            icon: const Icon(Icons.clear),
+            icon: const Icon(Icons.delete_outline),
             tooltip: 'Clear',
             onPressed: () => setState(() => _buffer.clear()),
           ),
@@ -75,47 +93,112 @@ class _TerminalScreenState extends State<TerminalScreen> {
       ),
       body: Column(
         children: [
+          // Quick commands
+          SizedBox(
+            height: 36,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              scrollDirection: Axis.horizontal,
+              itemCount: _quickCmds.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 6),
+              itemBuilder: (_, i) => ActionChip(
+                label: Text(_quickCmds[i].split('"')[1],
+                    style: const TextStyle(fontSize: 10)),
+                onPressed: () => _run(_quickCmds[i]),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                visualDensity: VisualDensity.compact,
+                backgroundColor: const Color(0xFF1C1C2E),
+                side: BorderSide(color: Colors.white.withOpacity(0.1)),
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          // Output buffer
           Expanded(
             child: Container(
-              color: Colors.black,
-              padding: const EdgeInsets.all(8),
+              color: const Color(0xFF080810),
+              padding: const EdgeInsets.all(10),
               child: SingleChildScrollView(
                 controller: _scrollController,
                 child: Text(
-                  _buffer.toString(),
-                  style: const TextStyle(
-                    color: Colors.greenAccent,
+                  _buffer.isEmpty
+                      ? '# Stardial terminal — run commands on the Alpine VM\n# Tap a quick command above or type below\n'
+                      : _buffer.toString(),
+                  style: TextStyle(
+                    color: _buffer.isEmpty
+                        ? Colors.white24
+                        : Colors.greenAccent,
                     fontFamily: 'monospace',
                     fontSize: 12,
+                    height: 1.5,
                   ),
                 ),
               ),
             ),
           ),
-          if (_loading) const LinearProgressIndicator(),
-          Padding(
+          if (_loading)
+            LinearProgressIndicator(
+              backgroundColor: Colors.white.withOpacity(0.05),
+              color: const Color(0xFF2196F3),
+              minHeight: 2,
+            ),
+          Container(
+            color: const Color(0xFF0E0E1A),
             padding: EdgeInsets.only(
-              left: 8,
+              left: 12,
               right: 8,
+              top: 8,
               bottom: MediaQuery.of(context).viewInsets.bottom + 8,
-              top: 4,
             ),
             child: Row(
               children: [
-                const Text('\$ ', style: TextStyle(fontFamily: 'monospace')),
+                Text('\$',
+                    style: TextStyle(
+                        fontFamily: 'monospace',
+                        color: Colors.greenAccent.withOpacity(0.7),
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
                     controller: _controller,
-                    decoration: const InputDecoration(
+                    style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 13,
+                        color: Colors.white),
+                    decoration: InputDecoration(
                       hintText: 'asterisk -rx "core show version"',
+                      hintStyle: TextStyle(
+                          color: Colors.white.withOpacity(0.2), fontSize: 12),
                       isDense: true,
-                      border: OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.05),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(
+                            color: Colors.white.withOpacity(0.1)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(
+                            color: Colors.white.withOpacity(0.1)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(
+                            color: Color(0xFF2196F3), width: 1.5),
+                      ),
                     ),
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
                     onSubmitted: (_) => _run(),
                   ),
                 ),
-                IconButton(icon: const Icon(Icons.send), onPressed: _run),
+                IconButton(
+                  icon: const Icon(Icons.send_rounded,
+                      color: Color(0xFF2196F3)),
+                  onPressed: _loading ? null : _run,
+                  tooltip: 'Run',
+                ),
               ],
             ),
           ),

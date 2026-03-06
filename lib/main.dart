@@ -27,10 +27,95 @@ class StardialApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1A237E),
+          seedColor: const Color(0xFF1565C0),
           brightness: Brightness.dark,
+        ).copyWith(
+          primary: const Color(0xFF2196F3),
+          secondary: const Color(0xFF00BFA5),
+          surface: const Color(0xFF1C1C2E),
+          background: const Color(0xFF0E0E1A),
+          onBackground: Colors.white,
         ),
         useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFF0E0E1A),
+        cardTheme: CardTheme(
+          color: const Color(0xFF1C1C2E),
+          elevation: 0,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.white.withOpacity(0.07)),
+          ),
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF0E0E1A),
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: false,
+          titleTextStyle: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+            letterSpacing: -0.5,
+          ),
+          iconTheme: IconThemeData(color: Colors.white70),
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: const Color(0xFF12121F),
+          surfaceTintColor: Colors.transparent,
+          indicatorColor: const Color(0xFF2196F3).withOpacity(0.18),
+          height: 64,
+          labelTextStyle: MaterialStateProperty.all(
+            const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: const Color(0xFF1C1C2E),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF2196F3), width: 1.5),
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF2196F3),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF2196F3),
+            side: const BorderSide(color: Color(0xFF2196F3)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+        ),
+        dividerTheme: DividerThemeData(
+          color: Colors.white.withOpacity(0.07),
+          thickness: 1,
+          space: 1,
+        ),
+        chipTheme: ChipThemeData(
+          backgroundColor: const Color(0xFF2196F3).withOpacity(0.12),
+          labelStyle: const TextStyle(fontSize: 10, color: Color(0xFF64B5F6)),
+          side: BorderSide(color: const Color(0xFF2196F3).withOpacity(0.3)),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        ),
       ),
       home: const MainShell(),
     );
@@ -57,18 +142,56 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    final vm = context.watch<VmState>();
+    final callCount = vm.activeCalls.length;
+
     return Scaffold(
       body: _screens[_index],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
-          NavigationDestination(icon: Icon(Icons.contacts), label: 'Extensions'),
-          NavigationDestination(icon: Icon(Icons.call), label: 'Calls'),
-          NavigationDestination(icon: Icon(Icons.terminal), label: 'Terminal'),
-          NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
-        ],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: Colors.white.withOpacity(0.07)),
+          ),
+        ),
+        child: NavigationBar(
+          selectedIndex: _index,
+          onDestinationSelected: (i) => setState(() => _index = i),
+          destinations: [
+            const NavigationDestination(
+              icon: Icon(Icons.dashboard_outlined),
+              selectedIcon: Icon(Icons.dashboard),
+              label: 'Dashboard',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.contacts_outlined),
+              selectedIcon: Icon(Icons.contacts),
+              label: 'Extensions',
+            ),
+            NavigationDestination(
+              icon: Badge(
+                isLabelVisible: callCount > 0,
+                label: Text('$callCount'),
+                child: const Icon(Icons.call_outlined),
+              ),
+              selectedIcon: Badge(
+                isLabelVisible: callCount > 0,
+                label: Text('$callCount'),
+                child: const Icon(Icons.call),
+              ),
+              label: 'Calls',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.terminal_outlined),
+              selectedIcon: Icon(Icons.terminal),
+              label: 'Terminal',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.settings_outlined),
+              selectedIcon: Icon(Icons.settings),
+              label: 'Settings',
+            ),
+          ],
+        ),
       ),
     );
   }

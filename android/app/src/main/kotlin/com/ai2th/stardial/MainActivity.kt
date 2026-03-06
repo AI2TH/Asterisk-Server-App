@@ -1,10 +1,12 @@
 package com.ai2th.stardial
 
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.net.NetworkInterface
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
@@ -127,6 +129,10 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
+                    "getWifiIp" -> {
+                        result.success(getWifiIpAddress())
+                    }
+
                     else -> result.notImplemented()
                 }
             }
@@ -135,6 +141,22 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         executor.shutdown()
         super.onDestroy()
+    }
+
+    private fun getWifiIpAddress(): String {
+        try {
+            val ifaces = NetworkInterface.getNetworkInterfaces()?.toList() ?: return ""
+            for (iface in ifaces) {
+                if (!iface.isUp || iface.isLoopback) continue
+                for (addr in iface.inetAddresses.toList()) {
+                    if (addr.isLoopbackAddress) continue
+                    val ip = addr.hostAddress ?: continue
+                    if (ip.contains(':')) continue  // skip IPv6
+                    return ip
+                }
+            }
+        } catch (_: Exception) {}
+        return ""
     }
 
     private fun startVmService() {
