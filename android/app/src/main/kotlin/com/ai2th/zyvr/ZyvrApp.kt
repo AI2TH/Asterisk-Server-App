@@ -1,8 +1,8 @@
-package com.ai2th.stardial
+package com.ai2th.zyvr
 
 import android.app.Application
 
-class StardialApp : Application() {
+class ZyvrApp : Application() {
     lateinit var vmManager: VmManager
         private set
 

@@ -1,4 +1,4 @@
-package com.ai2th.stardial
+package com.ai2th.zyvr
 
 import android.content.Intent
 import android.net.wifi.WifiManager
@@ -10,8 +10,8 @@ import java.net.NetworkInterface
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.ai2th.stardial/vm"
-    private val vm get() = (applicationContext as StardialApp).vmManager
+    private val CHANNEL = "com.ai2th.zyvr/vm"
+    private val vm get() = (applicationContext as ZyvrApp).vmManager
     private val executor = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {

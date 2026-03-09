@@ -16,18 +16,17 @@ class DashboardScreen extends StatelessWidget {
       appBar: AppBar(
         title: Row(
           children: [
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: const Color(0xFF2196F3).withOpacity(0.15),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFF2196F3).withOpacity(0.3)),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.asset(
+                'assets/icon_master_512.png',
+                width: 30,
+                height: 30,
+                fit: BoxFit.cover,
               ),
-              child: const Icon(Icons.star, size: 16, color: Color(0xFF2196F3)),
             ),
             const SizedBox(width: 10),
-            const Text('Stardial'),
+            const Text('Zyvr'),
           ],
         ),
         actions: [
@@ -239,14 +238,41 @@ class _MiniStat extends StatelessWidget {
 // VM Controls
 // ---------------------------------------------------------------------------
 
-class _VmControls extends StatelessWidget {
+class _VmControls extends StatefulWidget {
   final VmState vm;
   const _VmControls({required this.vm});
 
   @override
+  State<_VmControls> createState() => _VmControlsState();
+}
+
+class _VmControlsState extends State<_VmControls> {
+  bool _busy = false;
+
+  Future<void> _run(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await action();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: Colors.red.shade800,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isRunning = vm.status == VmStatus.running;
-    final isBusy = vm.status == VmStatus.unknown;
+    final isRunning = widget.vm.status == VmStatus.running;
+    final isBusy = _busy;
 
     return Column(
       children: [
@@ -254,16 +280,34 @@ class _VmControls extends StatelessWidget {
           children: [
             Expanded(
               child: FilledButton.icon(
-                onPressed: isRunning || isBusy ? null : startVm,
-                icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                onPressed: isRunning || isBusy ? null : () => _run(() async {
+                  await startVm();
+                  widget.vm.setStarting();
+                }),
+                icon: isBusy && !isRunning
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.play_arrow_rounded, size: 18),
                 label: const Text('Start'),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: FilledButton.icon(
-                onPressed: !isRunning || isBusy ? null : stopVm,
-                icon: const Icon(Icons.stop_rounded, size: 18),
+                onPressed: !isRunning || isBusy ? null : () => _run(() async {
+                  await stopVm();
+                  widget.vm.setStopping();
+                }),
+                icon: isBusy && isRunning
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.stop_rounded, size: 18),
                 label: const Text('Stop'),
                 style: FilledButton.styleFrom(
                   backgroundColor: isRunning
@@ -281,7 +325,10 @@ class _VmControls extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isBusy ? null : restartVm,
+                onPressed: isBusy ? null : () => _run(() async {
+                  await restartVm();
+                  widget.vm.setStarting();
+                }),
                 icon: const Icon(Icons.refresh_rounded, size: 17),
                 label: const Text('Restart VM'),
               ),
@@ -289,7 +336,7 @@ class _VmControls extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isRunning ? vm.reloadAsterisk : null,
+                onPressed: isRunning && !isBusy ? widget.vm.reloadAsterisk : null,
                 icon: const Icon(Icons.sync_rounded, size: 17),
                 label: const Text('Reload Config'),
               ),

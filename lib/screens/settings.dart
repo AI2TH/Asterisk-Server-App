@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'about.dart';
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -91,7 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _InfoRow('RTP Range', '10000–10019 UDP'),
             _InfoRow('AMI',       '127.0.0.1:5038'),
             _InfoRow('ARI',       '127.0.0.1:8088'),
-            _InfoRow('ARI User',  'stardial'),
+            _InfoRow('ARI User',  'zyvr'),
             _InfoRow('WS',        '127.0.0.1:8088 /asterisk/sip'),
             _InfoRow('WSS',       '127.0.0.1:8089 /asterisk/sip'),
           ]),
@@ -130,56 +132,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 24),
 
-          // About section
+          // About section — taps into dedicated About page
           _SectionHeader(icon: Icons.info_outline, title: 'About'),
           const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1C1C2E),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white.withOpacity(0.07)),
+          InkWell(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AboutScreen()),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1C1C2E),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white.withOpacity(0.07)),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.asset(
+                      'assets/icon_master_512.png',
                       width: 40,
                       height: 40,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2196F3).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.star,
-                          size: 20, color: Color(0xFF2196F3)),
+                      fit: BoxFit.cover,
                     ),
-                    const SizedBox(width: 12),
-                    Column(
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Stardial',
+                        const Text('Zyvr',
                             style: TextStyle(
                                 fontSize: 15, fontWeight: FontWeight.w700)),
-                        Text('Version 1.0.0',
+                        Text('Version 1.0.0 · AI2TH',
                             style: TextStyle(
                                 fontSize: 11,
                                 color: Colors.white.withOpacity(0.4))),
                       ],
                     ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Asterisk 20 PBX running inside a QEMU Alpine Linux VM — no root, no Termux. '
-                  'Any SIP client on the same WiFi can register and make calls.',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white.withOpacity(0.5),
-                      height: 1.5),
-                ),
-              ],
+                  ),
+                  Icon(Icons.chevron_right,
+                      size: 18, color: Colors.white.withOpacity(0.3)),
+                ],
+              ),
             ),
           ),
         ],
@@ -289,7 +287,7 @@ class _ResourceCard extends StatelessWidget {
                   color: const Color(0xFF2196F3).withOpacity(0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text('${ramMb} MB',
+                child: Text('$ramMb MB',
                     style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,

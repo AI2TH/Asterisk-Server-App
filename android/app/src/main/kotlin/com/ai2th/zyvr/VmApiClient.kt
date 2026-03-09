@@ -1,4 +1,4 @@
-package com.ai2th.stardial
+package com.ai2th.zyvr
 
 import android.util.Log
 import com.google.gson.Gson

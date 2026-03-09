@@ -1,4 +1,4 @@
-# Stardial — Asterisk PBX on Android
+# Zyvr — Asterisk PBX on Android
 
 Run a full Asterisk telephony server on a non-rooted Android device — no Termux, no root, one APK.
 
@@ -64,8 +64,8 @@ asterisk-app/
 │       └── vm_platform.dart    MethodChannel + VmState
 │
 ├── android/app/src/main/
-│   ├── kotlin/com/ai2th/stardial/
-│   │   ├── StardialApp.kt      Application singleton
+│   ├── kotlin/com/ai2th/zyvr/
+│   │   ├── ZyvrApp.kt          Application singleton
 │   │   ├── MainActivity.kt     MethodChannel handler
 │   │   ├── VmManager.kt        Asset extraction + QEMU launch (multi-port)
 │   │   ├── VmApiClient.kt      HTTP client (auth token)
@@ -111,13 +111,13 @@ asterisk-app/
 
 ```bash
 ./scripts/build_apk.sh release
-# Output: build/stardial-release.apk
+# Output: build/zyvr-release.apk
 ```
 
 ### 3. Install
 
 ```bash
-adb install -r build/stardial-release.apk
+adb install -r build/zyvr-release.apk
 ```
 
 ---

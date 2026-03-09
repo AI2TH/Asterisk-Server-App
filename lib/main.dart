@@ -12,18 +12,18 @@ void main() {
   runApp(
     ChangeNotifierProvider(
       create: (_) => VmState()..startPolling(),
-      child: const StardialApp(),
+      child: const ZyvrApp(),
     ),
   );
 }
 
-class StardialApp extends StatelessWidget {
-  const StardialApp({super.key});
+class ZyvrApp extends StatelessWidget {
+  const ZyvrApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Stardial',
+      title: 'Zyvr',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -33,8 +33,7 @@ class StardialApp extends StatelessWidget {
           primary: const Color(0xFF2196F3),
           secondary: const Color(0xFF00BFA5),
           surface: const Color(0xFF1C1C2E),
-          background: const Color(0xFF0E0E1A),
-          onBackground: Colors.white,
+          onSurface: Colors.white,
         ),
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFF0E0E1A),
@@ -65,7 +64,7 @@ class StardialApp extends StatelessWidget {
           surfaceTintColor: Colors.transparent,
           indicatorColor: const Color(0xFF2196F3).withOpacity(0.18),
           height: 64,
-          labelTextStyle: MaterialStateProperty.all(
+          labelTextStyle: WidgetStateProperty.all(
             const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
           ),
         ),

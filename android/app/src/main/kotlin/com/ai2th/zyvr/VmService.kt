@@ -1,4 +1,4 @@
-package com.ai2th.stardial
+package com.ai2th.zyvr
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -8,7 +8,7 @@ import android.content.Intent
 import android.os.IBinder
 
 class VmService : Service() {
-    private val CHANNEL_ID = "stardial_vm"
+    private val CHANNEL_ID = "zyvr_vm"
     private val NOTIF_ID   = 1
 
     override fun onCreate() {
@@ -25,7 +25,7 @@ class VmService : Service() {
     private fun createNotificationChannel() {
         val ch = NotificationChannel(
             CHANNEL_ID,
-            "Stardial PBX",
+            "Zyvr PBX",
             NotificationManager.IMPORTANCE_LOW
         ).apply { description = "Asterisk VM is running" }
         getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
@@ -33,7 +33,7 @@ class VmService : Service() {
 
     private fun buildNotification(): Notification =
         Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Stardial PBX")
+            .setContentTitle("Zyvr PBX")
             .setContentText("Asterisk is running")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true)

@@ -42,7 +42,17 @@ class _ExtensionsScreenState extends State<ExtensionsScreen> {
         ],
       ),
       body: vm.extensions.isEmpty
-          ? _EmptyState(onAdd: () => _showAddDialog(context, vm))
+          ? _EmptyState(
+              onAdd: vm.status == VmStatus.running
+                  ? () => _showAddDialog(context, vm)
+                  : () => ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Start the VM from the Dashboard tab first'),
+                          backgroundColor: Colors.deepOrange,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      ),
+            )
           : ListView.separated(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
               itemCount: vm.extensions.length,
@@ -56,10 +66,20 @@ class _ExtensionsScreenState extends State<ExtensionsScreen> {
               },
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddDialog(context, vm),
+        onPressed: vm.status == VmStatus.running
+            ? () => _showAddDialog(context, vm)
+            : () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Start the VM from the Dashboard tab first'),
+                    backgroundColor: Colors.deepOrange,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                ),
         icon: const Icon(Icons.add),
         label: const Text('Add Extension'),
-        backgroundColor: const Color(0xFF2196F3),
+        backgroundColor: vm.status == VmStatus.running
+            ? const Color(0xFF2196F3)
+            : Colors.grey.shade700,
         foregroundColor: Colors.white,
       ),
     );
@@ -167,8 +187,20 @@ class _ExtensionsScreenState extends State<ExtensionsScreen> {
                     child: FilledButton(
                       onPressed: () async {
                         Navigator.pop(ctx);
+                        if (vm.status != VmStatus.running) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('VM is not running — start it from the Dashboard tab'),
+                              backgroundColor: Colors.deepOrange,
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                          return;
+                        }
+                        final name = nameCtrl.text.trim();
                         final ok = await vm.createExtension(
-                          name:     nameCtrl.text.trim(),
+                          name:     name,
                           password: passCtrl.text.trim(),
                           context:  ctxCtrl.text.trim(),
                           webrtc:   webrtc,
@@ -176,7 +208,7 @@ class _ExtensionsScreenState extends State<ExtensionsScreen> {
                         if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                           content: Text(ok
-                              ? 'Extension ${nameCtrl.text.trim()} created'
+                              ? 'Extension $name created'
                               : 'Failed to create extension'),
                           backgroundColor:
                               ok ? Colors.green.shade800 : Colors.red.shade800,

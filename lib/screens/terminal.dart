@@ -122,7 +122,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
                 controller: _scrollController,
                 child: Text(
                   _buffer.isEmpty
-                      ? '# Stardial terminal — run commands on the Alpine VM\n# Tap a quick command above or type below\n'
+                      ? '# Zyvr terminal — run commands on the Alpine VM\n# Tap a quick command above or type below\n'
                       : _buffer.toString(),
                   style: TextStyle(
                     color: _buffer.isEmpty

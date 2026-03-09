@@ -1,4 +1,4 @@
-package com.ai2th.stardial
+package com.ai2th.zyvr
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -30,7 +30,7 @@ class VmManager(private val context: Context) {
         get() = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
 
     private val appPrefs: SharedPreferences
-        get() = context.getSharedPreferences("stardial_app_prefs", Context.MODE_PRIVATE)
+        get() = context.getSharedPreferences("zyvr_app_prefs", Context.MODE_PRIVATE)
 
     val token: String by lazy { getOrCreateToken() }
     val apiClient: VmApiClient by lazy { VmApiClient(token) }

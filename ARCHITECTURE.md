@@ -1,10 +1,10 @@
-# Architecture — Stardial: Asterisk PBX on Android (No Root)
+# Architecture — Zyvr: Asterisk PBX on Android (No Root)
 
 ## 1. Objective
 
 A single Android APK that runs a full Asterisk telephony server on non-rooted devices by embedding a QEMU virtual machine running Alpine Linux. No external apps (no Termux), no root required.
 
-One Android phone becomes a private PBX server. Every other device on the same WiFi network installs a standard SIP client (Linphone, Zoiper, Bria) and registers to the Stardial device. They can then call each other through Asterisk — no SIP provider, no internet, no carrier needed.
+One Android phone becomes a private PBX server. Every other device on the same WiFi network installs a standard SIP client (Linphone, Zoiper, Bria) and registers to the Zyvr device. They can then call each other through Asterisk — no SIP provider, no internet, no carrier needed.
 
 ---
 
@@ -13,7 +13,7 @@ One Android phone becomes a private PBX server. Every other device on the same W
 ```
 WiFi Network (192.168.1.x)
 │
-├── [Android phone running Stardial]   ← PBX server
+├── [Android phone running Zyvr]   ← PBX server
 │     Asterisk 20 listening on :5060
 │     WiFi IP: 192.168.1.42 (shown in app)
 │
@@ -31,8 +31,8 @@ WiFi Network (192.168.1.x)
 ```
 
 **Rules:**
-- There is exactly **one** Stardial server per WiFi network (the phone running the app).
-- All other devices are clients — they never run Stardial.
+- There is exactly **one** Zyvr server per WiFi network (the phone running the app).
+- All other devices are clients — they never run Zyvr.
 - Asterisk handles all call routing via the `from-internal` dialplan.
 - Up to **10 concurrent calls** (limited by the 20 RTP UDP hostfwd slots).
 - The device's WiFi IP is fetched at startup and displayed on the Dashboard.
@@ -44,7 +44,7 @@ WiFi Network (192.168.1.x)
 ```
 Android OS (non-rooted)
 └── APK (Flutter + Kotlin)
-    ├── StardialApp (Application singleton)
+    ├── ZyvrApp (Application singleton)
     │   └── VmManager — asset extraction, QEMU lifecycle
     │       └── VmApiClient — HTTP client (auth token, port 7080)
     ├── VmService — ForegroundService (persistent notification)
@@ -71,7 +71,7 @@ Android host (0.0.0.0 — accessible from WiFi)
 
 ### 4.1 Android App (Kotlin + Flutter)
 
-**StardialApp** (`Application` subclass) holds the `VmManager` singleton.
+**ZyvrApp** (`Application` subclass) holds the `VmManager` singleton.
 
 **VmManager** handles:
 - First-run asset extraction from `AssetManager` to app-private storage
@@ -165,19 +165,19 @@ All 20 RTP UDP hostfwd entries are generated programmatically in `VmManager.buil
 
 ### WiFi SIP client registration
 
-1. User starts Stardial on the server phone.
+1. User starts Zyvr on the server phone.
 2. Dashboard shows the device's WiFi IP (e.g., `192.168.1.42`).
 3. On any other phone or laptop on the same WiFi:
    - SIP clients (Linphone, Zoiper, Bria): server = `192.168.1.42`, port `5060`
    - WebRTC browsers (SIP.js): WSS = `wss://192.168.1.42:8089/asterisk/sip`
-4. Create extensions in the Stardial app (Extensions tab).
+4. Create extensions in the Zyvr app (Extensions tab).
 5. Clients register and can dial each other by extension number.
 
 ---
 
 ## 6. Token Authentication
 
-1. `VmManager` generates a UUID on first launch, stored in `stardial_app_prefs`.
+1. `VmManager` generates a UUID on first launch, stored in `zyvr_app_prefs`.
 2. Injected into every QEMU boot via `-fw_cfg name=opt/api_token,string=<UUID>`.
 3. `api_server.py` reads from `/sys/firmware/qemu_fw_cfg/by_name/opt/api_token/raw`.
 4. Every API call (except `/health`) requires `Authorization: Bearer <UUID>`.
@@ -191,7 +191,7 @@ All 20 RTP UDP hostfwd entries are generated programmatically in `VmManager.buil
 ```ini
 [global]
 type=global
-user_agent=Stardial PBX
+user_agent=Zyvr PBX
 
 [transport-udp]
 type=transport
@@ -242,8 +242,8 @@ enabled=yes
 port=5038
 bindaddr=127.0.0.1
 
-[stardial]
-secret=stardial_ami_secret
+[zyvr]
+secret=zyvr_ami_secret
 read=all
 write=all
 ```
@@ -266,9 +266,9 @@ tlsprivatekey=/etc/asterisk/keys/key.pem
 [general]
 enabled=yes
 pretty=yes
-[stardial]
+[zyvr]
 type=user
-password=stardial_ari_pass
+password=zyvr_ari_pass
 password_format=plain
 ```
 
@@ -375,7 +375,7 @@ Material 3 dark with a custom ColorScheme:
 | Stage | Docker image | Output |
 |---|---|---|
 | Alpine base | `arm64v8/alpine:3.19` | `base.qcow2.gz` (~150 MB — larger than Pockr due to Asterisk) |
-| APK build | `ubuntu:22.04` (amd64) | `stardial-release.apk` (~31.5 MB) |
+| APK build | `ubuntu:22.04` (amd64) | `zyvr-release.apk` (~31.5 MB) |
 
 APK builder uses `--platform linux/amd64` on Apple Silicon Macs (same as Pockr).
 
@@ -396,8 +396,8 @@ Current version: **v1**
 |---|---|---|
 | vCPU count | `FlutterSharedPreferences` | `flutter.vcpu_count` |
 | RAM (MB) | `FlutterSharedPreferences` | `flutter.ram_mb` |
-| API token | `stardial_app_prefs` | `api_token` |
-| AMI secret | `stardial_app_prefs` | `ami_secret` |
+| API token | `zyvr_app_prefs` | `api_token` |
+| AMI secret | `zyvr_app_prefs` | `ami_secret` |
 
 Defaults: vCPU = 2, RAM = 1024 MB.
 
@@ -405,7 +405,7 @@ Defaults: vCPU = 2, RAM = 1024 MB.
 
 ## 14. Differences from Pockr (docker-app)
 
-| Aspect | Pockr | Stardial |
+| Aspect | Pockr | Zyvr |
 |---|---|---|
 | Guest service | Docker daemon | Asterisk 20 PBX |
 | API server purpose | Container lifecycle | Extension mgmt + call control |

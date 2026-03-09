@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 // MethodChannel — talks to Kotlin VmManager via MainActivity
 // ---------------------------------------------------------------------------
 
-const _channel = MethodChannel('com.ai2th.stardial/vm');
+const _channel = MethodChannel('com.ai2th.zyvr/vm');
 
 Future<void> startVm()   => _channel.invokeMethod('startVm');
 Future<void> stopVm()    => _channel.invokeMethod('stopVm');
@@ -105,7 +105,7 @@ class ActiveCall {
 }
 
 class VmState extends ChangeNotifier {
-  VmStatus status = VmStatus.unknown;
+  VmStatus status = VmStatus.stopped;
   String asteriskVersion = '';
   String wsEndpoint  = 'ws://127.0.0.1:8088/asterisk/sip';
   String wssEndpoint = 'wss://127.0.0.1:8089/asterisk/sip';
@@ -117,6 +117,16 @@ class VmState extends ChangeNotifier {
   String logs = '';
 
   Timer? _timer;
+
+  void setStarting() {
+    status = VmStatus.unknown;
+    notifyListeners();
+  }
+
+  void setStopping() {
+    status = VmStatus.stopped;
+    notifyListeners();
+  }
 
   void startPolling() {
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _poll());
