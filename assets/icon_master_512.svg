@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="100%" x2="75%" y2="0%">
+      <stop offset="0%" stop-color="#071426"/>
+      <stop offset="100%" stop-color="#1A5BBC"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="115" fill="url(#bg)"/>
+
+  <!-- Z shape: 10-vertex polygon
+       top bar   (y 100-163), bottom bar (y 350-413), x 72-432
+       diagonal  upper edge (432,163)→(185,350)
+                 lower edge (320,163)→(72,350)
+  -->
+  <polygon fill="white"
+    points="72,100  432,100
+            432,163  185,350
+            432,350  432,413
+            72,413   72,350
+            320,163  72,163"/>
+
+  <!-- Informational dots — ISO blue = informational/status; brightened for isolation effect -->
+  <circle cx="440" cy="128" r="16" fill="#29CCFF"/>
+  <circle cx="464" cy="128" r="12" fill="#29CCFF"/>
+  <circle cx="484" cy="128" r="9"  fill="#29CCFF"/>
+</svg>

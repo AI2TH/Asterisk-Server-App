@@ -1,0 +1,17 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    prefer_const_constructors: true
+    prefer_const_literals_to_create_immutables: true
+    avoid_unnecessary_containers: true
+    sized_box_for_whitespace: true
+    use_super_parameters: true
+    unnecessary_string_interpolations: true
+    prefer_single_quotes: true
+    sort_child_properties_last: true
+
+analyzer:
+  errors:
+    # Suppress deprecated API warnings until Flutter SDK upgrades are landed
+    deprecated_member_use: ignore

@@ -1,0 +1,34 @@
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.iml
+
+# Android
+android/.gradle/
+android/app/build/
+android/local.properties
+android/key.properties
+*.jks
+*.keystore
+!android/app/debug.keystore
+
+# Assets (generated — not committed)
+android/app/src/main/assets/vm/base.qcow2.gz
+android/app/src/main/assets/vm/base.qcow2
+
+# jniLibs are symlinked from pockr — not committed here
+android/app/src/main/jniLibs
+
+# macOS
+.DS_Store
+
+# Service account / secrets
+service-account-key.json
+*.pem
+*.key
+
+# Logs
+*.log
