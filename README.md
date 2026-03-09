@@ -161,6 +161,28 @@ All endpoints except `/health` require `Authorization: Bearer <token>`.
 
 ---
 
+## Screenshots
+
+| Dashboard | Extensions | Active Calls |
+|---|---|---|
+| ![Dashboard](https://ai2th.github.io/screenshots/zyvr/01-dashboard.png) | ![Extensions](https://ai2th.github.io/screenshots/zyvr/03-extensions.png) | ![Calls](https://ai2th.github.io/screenshots/zyvr/04-calls.png) |
+
+| Terminal | Settings | About |
+|---|---|---|
+| ![Terminal](https://ai2th.github.io/screenshots/zyvr/05-terminal.png) | ![Settings](https://ai2th.github.io/screenshots/zyvr/07-settings-full.png) | ![About](https://ai2th.github.io/screenshots/zyvr/09-about.png) |
+
+---
+
 ## Architecture
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
+
+---
+
+## About AI2TH
+
+**Applied Intelligence To Tackle Hardships**
+
+AI2TH builds developer tools that bring powerful computing environments to constrained devices — no root, no Termux, just the APK.
+
+🌐 [ai2th.github.io](https://ai2th.github.io)

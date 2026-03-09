@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -263,7 +264,7 @@ class _CompanyCard extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(14),
               child: Image.asset(
-                'assets/images/logo.jpeg',
+                'assets/images/logo.png',
                 width: 56,
                 height: 56,
                 fit: BoxFit.contain,
@@ -283,9 +284,22 @@ class _CompanyCard extends StatelessWidget {
               ),
               const SizedBox(height: 3),
               Text(
-                'AI to the power of 2 · Technology Hub',
+                'Applied Intelligence To Tackle Hardships',
                 style: TextStyle(
                     fontSize: 11, color: Colors.white.withOpacity(0.45)),
+              ),
+              const SizedBox(height: 3),
+              GestureDetector(
+                onTap: () => launchUrl(Uri.parse('https://ai2th.github.io'),
+                    mode: LaunchMode.externalApplication),
+                child: Text(
+                  'ai2th.github.io',
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: const Color(0xFF64B5F6).withOpacity(0.8),
+                      decoration: TextDecoration.underline,
+                      decorationColor: const Color(0xFF64B5F6)),
+                ),
               ),
             ],
           ),

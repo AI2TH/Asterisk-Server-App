@@ -22,8 +22,8 @@
             72,413   72,350
             320,163  72,163"/>
 
-  <!-- Teal dots — right of Z top bar, in dark background -->
-  <circle cx="440" cy="128" r="16" fill="#5AC8FA"/>
-  <circle cx="464" cy="128" r="12" fill="#5AC8FA"/>
-  <circle cx="484" cy="128" r="9"  fill="#5AC8FA"/>
+  <!-- Informational dots — ISO blue = informational/status; brightened for isolation effect -->
+  <circle cx="440" cy="128" r="16" fill="#29CCFF"/>
+  <circle cx="464" cy="128" r="12" fill="#29CCFF"/>
+  <circle cx="484" cy="128" r="9"  fill="#29CCFF"/>
 </svg>
