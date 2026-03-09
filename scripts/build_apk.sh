@@ -46,6 +46,7 @@ docker run --rm \
     "$BUILDER_IMAGE" \
     bash -c "
         flutter pub get && \
+        dart run flutter_launcher_icons && \
         flutter build apk --$MODE --target-platform android-arm64 && \
         cp build/app/outputs/flutter-apk/app-$MODE.apk /build-output/zyvr-$MODE.apk
     "
