@@ -117,15 +117,43 @@ class VmState extends ChangeNotifier {
   String logs = '';
 
   Timer? _timer;
+  DateTime? _startTime;
+  static const _gracePeriod = Duration(minutes: 5);
 
   void setStarting() {
     status = VmStatus.unknown;
+    _startTime = DateTime.now();
     notifyListeners();
   }
 
   void setStopping() {
     status = VmStatus.stopped;
+    _startTime = null;
     notifyListeners();
+  }
+
+  bool _isWithinGracePeriod() {
+    final t = _startTime;
+    if (t == null) return false;
+    return DateTime.now().difference(t) < _gracePeriod;
+  }
+
+  Future<void> _handleHealthFailure() async {
+    if (_startTime != null) {
+      // Still in startup mode — check if process is alive
+      try {
+        final procStatus = await getVmStatus();
+        if (procStatus == 'running' && _isWithinGracePeriod()) {
+          status = VmStatus.unknown; // QEMU alive, still booting
+          return;
+        }
+      } catch (_) {}
+      // Process died or grace period expired → startup failed
+      status = VmStatus.error;
+      _startTime = null;
+    } else {
+      status = VmStatus.stopped;
+    }
   }
 
   void startPolling() {
@@ -153,16 +181,22 @@ class VmState extends ChangeNotifier {
     try {
       final health = await _apiGet('/health') as Map?;
       if (health == null) {
-        status = VmStatus.stopped;
+        await _handleHealthFailure();
       } else {
         final s = health['status'] as String? ?? '';
-        status = s == 'running' ? VmStatus.running : VmStatus.stopped;
+        if (s == 'running') {
+          status = VmStatus.running;
+          _startTime = null;
+        } else {
+          status = VmStatus.stopped;
+          _startTime = null;
+        }
         asteriskVersion = health['version'] as String? ?? '';
         wsEndpoint  = health['ws']  as String? ?? wsEndpoint;
         wssEndpoint = health['wss'] as String? ?? wssEndpoint;
       }
     } catch (_) {
-      status = VmStatus.stopped;
+      await _handleHealthFailure();
     }
     notifyListeners();
   }

@@ -26,8 +26,6 @@ echo "[stardial] Installing packages..."
 apk update
 apk add --no-cache \
     asterisk \
-    asterisk-pjsip \
-    asterisk-codec-g722 \
     asterisk-sounds-en \
     asterisk-srtp \
     openssl \
@@ -56,7 +54,7 @@ echo "[stardial] TLS certificate generated at $KEYS_DIR"
 # 3. Install Python deps for API server
 # ---------------------------------------------------------------------------
 echo "[stardial] Installing Python packages..."
-pip3 install --no-cache-dir -r "$BOOTSTRAP_DIR/requirements.txt"
+pip3 install --no-cache-dir --break-system-packages -r "$BOOTSTRAP_DIR/requirements.txt"
 
 # ---------------------------------------------------------------------------
 # 4. Write Asterisk config files
