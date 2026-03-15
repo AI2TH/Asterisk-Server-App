@@ -9,9 +9,13 @@ Guest reads it from: /sys/firmware/qemu_fw_cfg/by_name/opt/api_token/raw
 """
 
 import configparser
+import json
 import logging
 import os
+import socket
 import subprocess
+import time
+import uuid
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Header
@@ -23,9 +27,10 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Stardial Asterisk API", version="1.0.0")
 
-PJSIP_CONF   = "/etc/asterisk/pjsip.conf"
-ASTERISK_LOG = "/var/log/asterisk/messages"
-CERT_FILE    = "/etc/asterisk/keys/asterisk.pem"
+PJSIP_CONF    = "/etc/asterisk/pjsip.conf"
+ASTERISK_LOG  = "/var/log/asterisk/messages"
+CERT_FILE     = "/etc/asterisk/keys/asterisk.pem"
+MESSAGES_FILE = "/var/lib/asterisk/messages.json"
 
 # ---------------------------------------------------------------------------
 # Token loading
@@ -96,6 +101,61 @@ def _sh(cmd: str, timeout: int = 30) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Messages storage helpers
+# ---------------------------------------------------------------------------
+
+
+def _read_messages() -> list:
+    try:
+        with open(MESSAGES_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _write_messages(messages: list) -> None:
+    os.makedirs(os.path.dirname(MESSAGES_FILE), exist_ok=True)
+    with open(MESSAGES_FILE, "w") as f:
+        json.dump(messages, f)
+
+
+def _ami_send_message(from_ext: str, to_ext: str, body: str) -> bool:
+    """Send SIP MESSAGE via AMI MessageSend action to 127.0.0.1:5038."""
+    try:
+        s = socket.create_connection(("127.0.0.1", 5038), timeout=5)
+        with s:
+            def _recv_response() -> str:
+                data = b""
+                while b"\r\n\r\n" not in data:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                return data.decode("utf-8", errors="replace")
+
+            _recv_response()  # banner
+            s.sendall(
+                b"Action: Login\r\nUsername: stardial\r\n"
+                b"Secret: stardial_ami_secret\r\nEvents: off\r\n\r\n"
+            )
+            _recv_response()  # login response
+            safe_body = body.replace("\r\n", " ").replace("\n", " ")
+            s.sendall((
+                f"Action: MessageSend\r\nTo: pjsip:{to_ext}\r\n"
+                f"From: pjsip:{from_ext}\r\nBody: {safe_body}\r\n\r\n"
+            ).encode())
+            resp = _recv_response()
+            try:
+                s.sendall(b"Action: Logoff\r\n\r\n")
+            except Exception:
+                pass
+        return "Response: Success" in resp
+    except Exception as e:
+        logger.error("AMI send failed: %s", e)
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
 
@@ -116,6 +176,12 @@ class ExecRequest(BaseModel):
     cmd: str
 
 
+class MessageSend(BaseModel):
+    from_ext: str
+    to_ext: str
+    body: str
+
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -124,8 +190,21 @@ class ExecRequest(BaseModel):
 @app.get("/health")
 def health():
     try:
-        version = _asterisk("core show version", timeout=5)
-        running = bool(version)
+        # Check if Asterisk process is running via pidof.
+        # Also check the pidfile as a fallback (covers renamed processes).
+        pidof = subprocess.run(["pidof", "asterisk"], capture_output=True, timeout=5)
+        running = pidof.returncode == 0
+        if not running:
+            # Fallback: check OpenRC pidfile
+            try:
+                with open("/var/run/asterisk/asterisk.pid") as _pf:
+                    _pid = int(_pf.read().strip())
+                import os as _os
+                _os.kill(_pid, 0)
+                running = True
+            except Exception:
+                pass
+        version = _asterisk("core show version", timeout=5) if running else ""
         return {
             "status":  "running" if running else "stopped",
             "version": version or "unknown",
@@ -210,14 +289,15 @@ def create_extension(req: ExtensionCreate):
 
     # Endpoint stanza
     endpoint: dict = {
-        "type":       "endpoint",
-        "context":    req.context,
-        "disallow":   "all",
-        "allow":      "opus,ulaw,alaw,g722",
-        "auth":       auth_name,
-        "aors":       aor_name,
-        "force_rport": "yes",
-        "direct_media": "no",
+        "type":            "endpoint",
+        "context":         req.context,
+        "message_context": "from-internal-msg",
+        "disallow":        "all",
+        "allow":           "opus,ulaw,alaw,g722",
+        "auth":            auth_name,
+        "aors":            aor_name,
+        "force_rport":     "yes",
+        "direct_media":    "no",
     }
 
     if req.webrtc:
@@ -346,6 +426,46 @@ def vm_exec(req: ExecRequest):
         raise HTTPException(504, "Command timed out")
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+# ---------------------------------------------------------------------------
+# Messages
+# ---------------------------------------------------------------------------
+
+
+@app.get("/messages", dependencies=[Depends(require_auth)])
+def list_messages():
+    return _read_messages()
+
+
+@app.post("/messages/send", dependencies=[Depends(require_auth)])
+def send_message(req: MessageSend):
+    safe_body = req.body.replace("\r\n", " ").replace("\n", " ")
+    delivered = _ami_send_message(req.from_ext, req.to_ext, safe_body)
+    msg = {
+        "id":        str(uuid.uuid4()),
+        "from":      req.from_ext,
+        "to":        req.to_ext,
+        "body":      req.body,
+        "timestamp": time.time(),
+        "direction": "sent",
+        "delivered": delivered,
+    }
+    messages = _read_messages()
+    messages.append(msg)
+    _write_messages(messages)
+    return msg
+
+
+@app.delete("/messages/{msg_id}", dependencies=[Depends(require_auth)])
+def delete_message(msg_id: str):
+    messages = _read_messages()
+    before = len(messages)
+    messages = [m for m in messages if m.get("id") != msg_id]
+    if len(messages) == before:
+        raise HTTPException(404, "Message not found")
+    _write_messages(messages)
+    return {"deleted": True}
 
 
 # ---------------------------------------------------------------------------

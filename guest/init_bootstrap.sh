@@ -113,6 +113,12 @@ exten => 9999,1,Answer()
 exten => 9998,1,Answer()
  same => n,Playback(demo-congrats)
  same => n,Hangup()
+
+[from-internal-msg]
+exten => _X.,1,Set(FROM_B64=${BASE64_ENCODE(${MESSAGE(from)})})
+ same => n,Set(BODY_B64=${BASE64_ENCODE(${MESSAGE(body)})})
+ same => n,System(python3 /usr/local/bin/store_msg.py "${FROM_B64}" "${EXTEN}" "${BODY_B64}")
+ same => n,Hangup()
 EOF
 
 # rtp.conf — matches SLIRP hostfwd UDP range 10000-10019
@@ -161,15 +167,11 @@ password=stardial_ari_pass
 password_format=plain
 EOF
 
-# modules.conf — load res_srtp for DTLS/WebRTC, disable old chan_sip
-cat >> "$ASTERISK_CONF/modules.conf" << 'EOF'
-
-; Stardial additions
-noload => chan_sip.so
-load => res_srtp.so
-load => res_pjsip.so
-load => res_pjsip_session.so
-load => chan_pjsip.so
+# modules.conf — autoload handles pjsip/srtp; no explicit load needed
+# (explicit "load =>" for modules not installed causes Asterisk to abort)
+cat > "$ASTERISK_CONF/modules.conf" << 'EOF'
+[modules]
+autoload=yes
 EOF
 
 # logger.conf
@@ -183,10 +185,14 @@ console  => notice,warning,error
 EOF
 
 # ---------------------------------------------------------------------------
-# 5. Install API server
+# 5. Install API server and message storage helper
 # ---------------------------------------------------------------------------
 cp "$BOOTSTRAP_DIR/api_server.py" /usr/local/bin/stardial_api.py
 chmod +x /usr/local/bin/stardial_api.py
+cp "$BOOTSTRAP_DIR/store_msg.py" /usr/local/bin/store_msg.py
+chmod +x /usr/local/bin/store_msg.py
+mkdir -p /var/lib/asterisk
+echo "[]" > /var/lib/asterisk/messages.json
 
 # ---------------------------------------------------------------------------
 # 6. OpenRC: asterisk service
@@ -199,6 +205,8 @@ command="/usr/sbin/asterisk"
 command_args="-f"
 command_background=true
 pidfile="/var/run/asterisk/asterisk.pid"
+output_log="/var/log/asterisk/startup.log"
+error_log="/var/log/asterisk/startup.log"
 start_pre() {
     mkdir -p /var/run/asterisk /var/log/asterisk /var/spool/asterisk
 }
@@ -236,10 +244,19 @@ rc-update add stardial-api default
 echo "[stardial] Starting Asterisk..."
 rc-service asterisk start
 
-echo "[stardial] Waiting for Asterisk to be ready..."
+# Give process a moment to settle or crash
+sleep 3
+if pidof asterisk >/dev/null 2>&1; then
+    echo "[stardial] Asterisk process running (pid: $(pidof asterisk))"
+else
+    echo "[stardial] WARNING: Asterisk not running after start. Startup log:"
+    tail -30 /var/log/asterisk/startup.log 2>/dev/null || echo "(no startup log)"
+fi
+
+echo "[stardial] Waiting for Asterisk CLI to be ready..."
 for i in $(seq 1 30); do
     if asterisk -rx "core show version" >/dev/null 2>&1; then
-        echo "[stardial] Asterisk is ready."
+        echo "[stardial] Asterisk CLI is ready."
         break
     fi
     sleep 2
