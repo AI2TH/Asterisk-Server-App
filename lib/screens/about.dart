@@ -55,7 +55,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
           _InfoBox(
             child: Column(
               children: const [
-                _DetailRow('Version',   '1.0.0 (build 1)'),
+                _DetailRow('Version',   '1.1.0 (build 2)'),
                 Divider(height: 1),
                 _DetailRow('Package',   'com.ai2th.zyvr'),
                 Divider(height: 1),
@@ -130,7 +130,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
             onPressed: () => showLicensePage(
               context: context,
               applicationName: 'Zyvr',
-              applicationVersion: '1.0.0',
+              applicationVersion: '1.1.0',
               applicationIcon: Padding(
                 padding: const EdgeInsets.all(8),
                 child: Image.asset('assets/icon_master_512.png',
@@ -205,7 +205,7 @@ class _HeroHeader extends StatelessWidget {
                   border: Border.all(color: Colors.white.withOpacity(0.2)),
                 ),
                 child: const Text(
-                  'Version 1.0.0',
+                  'Version 1.1.0',
                   style: TextStyle(
                     fontSize: 11,
                     color: Colors.white70,
