@@ -41,4 +41,15 @@ RUN git clone --depth 1 --branch 3.22.2 \
         https://github.com/flutter/flutter.git $FLUTTER_HOME && \
     flutter precache --android
 
+# Pre-cache Gradle 8.3 inside the image
+RUN GRADLE_VER=8.3 && \
+    DIST_URL="https://services.gradle.org/distributions/gradle-${GRADLE_VER}-all.zip" && \
+    flutter create --no-pub --platforms android --project-name gprewarm \
+        --org com.gprewarm /tmp/gprewarm_proj 2>/dev/null && \
+    sed -i "s|distributionUrl=.*|distributionUrl=${DIST_URL}|" \
+        /tmp/gprewarm_proj/android/gradle/wrapper/gradle-wrapper.properties && \
+    cd /tmp/gprewarm_proj/android && chmod +x gradlew && \
+    ./gradlew --version --no-daemon 2>&1 | tail -3 && \
+    rm -rf /tmp/gprewarm_proj
+
 WORKDIR /workspace

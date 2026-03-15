@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/vm_platform.dart';
+import 'messages.dart';
 
 class ExtensionsScreen extends StatefulWidget {
   const ExtensionsScreen({super.key});
@@ -61,6 +62,8 @@ class _ExtensionsScreenState extends State<ExtensionsScreen> {
                 final ext = vm.extensions[i];
                 return _ExtensionCard(
                   ext: ext,
+                  onMessage: () =>
+                      showSendMessageSheet(context, vm, prefilledTo: ext.name),
                   onDelete: () => _confirmDelete(context, vm, ext.name),
                 );
               },
@@ -258,8 +261,13 @@ class _ExtensionsScreenState extends State<ExtensionsScreen> {
 
 class _ExtensionCard extends StatelessWidget {
   final Extension ext;
+  final VoidCallback onMessage;
   final VoidCallback onDelete;
-  const _ExtensionCard({required this.ext, required this.onDelete});
+  const _ExtensionCard({
+    required this.ext,
+    required this.onMessage,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -332,6 +340,12 @@ class _ExtensionCard extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          IconButton(
+            icon: Icon(Icons.sms_outlined,
+                size: 19, color: Colors.white.withOpacity(0.45)),
+            onPressed: onMessage,
+            tooltip: 'Send Message',
           ),
           IconButton(
             icon: Icon(Icons.delete_outline,

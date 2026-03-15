@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'screens/calls.dart';
 import 'screens/dashboard.dart';
 import 'screens/extensions.dart';
+import 'screens/messages.dart';
 import 'screens/settings.dart';
 import 'screens/terminal.dart';
 import 'services/vm_platform.dart';
@@ -135,6 +136,7 @@ class _MainShellState extends State<MainShell> {
     DashboardScreen(),
     ExtensionsScreen(),
     CallsScreen(),
+    MessagesScreen(),
     TerminalScreen(),
     SettingsScreen(),
   ];
@@ -178,6 +180,11 @@ class _MainShellState extends State<MainShell> {
                 child: const Icon(Icons.call),
               ),
               label: 'Calls',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.message_outlined),
+              selectedIcon: Icon(Icons.message),
+              label: 'Messages',
             ),
             const NavigationDestination(
               icon: Icon(Icons.terminal_outlined),

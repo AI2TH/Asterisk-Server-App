@@ -104,6 +104,36 @@ class ActiveCall {
       );
 }
 
+class Message {
+  final String id;
+  final String from;
+  final String to;
+  final String body;
+  final double timestamp;
+  final String direction; // 'sent' or 'received'
+  final bool delivered;
+
+  Message({
+    required this.id,
+    required this.from,
+    required this.to,
+    required this.body,
+    required this.timestamp,
+    required this.direction,
+    required this.delivered,
+  });
+
+  factory Message.fromJson(Map<String, dynamic> j) => Message(
+        id:        j['id']        as String? ?? '',
+        from:      j['from']      as String? ?? '',
+        to:        j['to']        as String? ?? '',
+        body:      j['body']      as String? ?? '',
+        timestamp: (j['timestamp'] as num?)?.toDouble() ?? 0.0,
+        direction: j['direction'] as String? ?? 'received',
+        delivered: j['delivered'] as bool?   ?? false,
+      );
+}
+
 class VmState extends ChangeNotifier {
   VmStatus status = VmStatus.stopped;
   String asteriskVersion = '';
@@ -114,18 +144,47 @@ class VmState extends ChangeNotifier {
 
   List<Extension> extensions = [];
   List<ActiveCall> activeCalls = [];
+  List<Message> messages = [];
   String logs = '';
 
   Timer? _timer;
+  DateTime? _startTime;
+  static const _gracePeriod = Duration(minutes: 10);
 
   void setStarting() {
     status = VmStatus.unknown;
+    _startTime = DateTime.now();
     notifyListeners();
   }
 
   void setStopping() {
     status = VmStatus.stopped;
+    _startTime = null;
     notifyListeners();
+  }
+
+  bool _isWithinGracePeriod() {
+    final t = _startTime;
+    if (t == null) return false;
+    return DateTime.now().difference(t) < _gracePeriod;
+  }
+
+  Future<void> _handleHealthFailure() async {
+    if (_startTime != null) {
+      // Still in startup mode — check if process is alive
+      try {
+        final procStatus = await getVmStatus();
+        if (procStatus == 'running' && _isWithinGracePeriod()) {
+          status = VmStatus.unknown; // QEMU alive, still booting
+          return;
+        }
+      } catch (_) {}
+      // Process died or grace period expired → startup failed
+      status = VmStatus.error;
+      _startTime = null;
+    } else {
+      status = VmStatus.stopped;
+    }
   }
 
   void startPolling() {
@@ -153,16 +212,25 @@ class VmState extends ChangeNotifier {
     try {
       final health = await _apiGet('/health') as Map?;
       if (health == null) {
-        status = VmStatus.stopped;
+        await _handleHealthFailure();
       } else {
         final s = health['status'] as String? ?? '';
-        status = s == 'running' ? VmStatus.running : VmStatus.stopped;
         asteriskVersion = health['version'] as String? ?? '';
         wsEndpoint  = health['ws']  as String? ?? wsEndpoint;
         wssEndpoint = health['wss'] as String? ?? wssEndpoint;
+        if (s == 'running') {
+          status = VmStatus.running;
+          _startTime = null;
+        } else if (_isWithinGracePeriod()) {
+          // API is up but Asterisk not ready yet — keep showing Starting...
+          status = VmStatus.unknown;
+        } else {
+          status = VmStatus.stopped;
+          _startTime = null;
+        }
       }
     } catch (_) {
-      status = VmStatus.stopped;
+      await _handleHealthFailure();
     }
     notifyListeners();
   }
@@ -192,6 +260,44 @@ class VmState extends ChangeNotifier {
       logs = await _apiGetText('/logs?tail=300');
       notifyListeners();
     } catch (_) {}
+  }
+
+  Future<void> refreshMessages() async {
+    try {
+      final data = await _apiGet('/messages') as List?;
+      messages = (data ?? [])
+          .map((e) => Message.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<bool> sendMessage({
+    required String fromExt,
+    required String toExt,
+    required String body,
+  }) async {
+    try {
+      await _apiPost('/messages/send', {
+        'from_ext': fromExt,
+        'to_ext':   toExt,
+        'body':     body,
+      });
+      await refreshMessages();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> deleteMessage(String id) async {
+    try {
+      await _apiDelete('/messages/$id');
+      await refreshMessages();
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> refreshCertFingerprint() async {

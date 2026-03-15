@@ -41,14 +41,15 @@ docker run --rm \
     --platform linux/amd64 \
     -v "$PROJECT_ROOT:/workspace" \
     -v "$JNILIBS_SRC:$JNILIBS_DST:ro" \
-    -v "$BUILD_DIR:/build-output" \
     -w /workspace \
     "$BUILDER_IMAGE" \
     bash -c "
+        flutter clean && \
         flutter pub get && \
         dart run flutter_launcher_icons && \
-        flutter build apk --$MODE --target-platform android-arm64 && \
-        cp build/app/outputs/flutter-apk/app-$MODE.apk /build-output/zyvr-$MODE.apk
+        flutter build apk --$MODE --target-platform android-arm64
     "
 
+# Copy APK out after the container exits (avoids flutter clean destroying the bind-mount target)
+cp "$PROJECT_ROOT/build/app/outputs/flutter-apk/app-$MODE.apk" "$BUILD_DIR/zyvr-$MODE.apk"
 echo "[zyvr] APK ready: $BUILD_DIR/zyvr-$MODE.apk"

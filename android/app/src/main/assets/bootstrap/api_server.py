@@ -124,8 +124,21 @@ class ExecRequest(BaseModel):
 @app.get("/health")
 def health():
     try:
-        version = _asterisk("core show version", timeout=5)
-        running = bool(version)
+        # Check if Asterisk process is running via pidof.
+        # Also check the pidfile as a fallback (covers renamed processes).
+        pidof = subprocess.run(["pidof", "asterisk"], capture_output=True, timeout=5)
+        running = pidof.returncode == 0
+        if not running:
+            # Fallback: check OpenRC pidfile
+            try:
+                with open("/var/run/asterisk/asterisk.pid") as _pf:
+                    _pid = int(_pf.read().strip())
+                import os as _os
+                _os.kill(_pid, 0)
+                running = True
+            except Exception:
+                pass
+        version = _asterisk("core show version", timeout=5) if running else ""
         return {
             "status":  "running" if running else "stopped",
             "version": version or "unknown",
