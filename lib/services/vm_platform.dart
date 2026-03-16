@@ -186,6 +186,7 @@ class VmState extends ChangeNotifier {
       // Process died or grace period expired → startup failed
       status = VmStatus.error;
       _startTime = null;
+      _starting = false;
     } else {
       status = VmStatus.stopped;
     }
@@ -232,6 +233,7 @@ class VmState extends ChangeNotifier {
         } else {
           status = VmStatus.stopped;
           _startTime = null;
+          _starting = false;
         }
       }
     } catch (_) {
