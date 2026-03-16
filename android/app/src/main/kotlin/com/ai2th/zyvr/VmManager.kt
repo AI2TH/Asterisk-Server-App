@@ -45,8 +45,14 @@ class VmManager(private val context: Context) {
     @Synchronized
     fun startVm() {
         Log.d(TAG, "startVm()")
-        if (isRunning || vmProcess != null) {
-            Log.d(TAG, "Stopping existing VM before restart")
+        if (vmProcess != null) {
+            val alive = try { vmProcess!!.exitValue(); false }
+                        catch (_: IllegalThreadStateException) { true }
+            if (alive) {
+                Log.d(TAG, "VM already running, ignoring startVm()")
+                return
+            }
+            Log.d(TAG, "Stopping exited VM before restart")
             stopVm()
         }
 

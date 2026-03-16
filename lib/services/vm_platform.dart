@@ -136,6 +136,8 @@ class Message {
 
 class VmState extends ChangeNotifier {
   VmStatus status = VmStatus.stopped;
+  bool _starting = false;
+  bool get isStarting => _starting;
   String asteriskVersion = '';
   String wsEndpoint  = 'ws://127.0.0.1:8088/asterisk/sip';
   String wssEndpoint = 'wss://127.0.0.1:8089/asterisk/sip';
@@ -152,12 +154,14 @@ class VmState extends ChangeNotifier {
   static const _gracePeriod = Duration(minutes: 10);
 
   void setStarting() {
+    _starting = true;
     status = VmStatus.unknown;
     _startTime = DateTime.now();
     notifyListeners();
   }
 
   void setStopping() {
+    _starting = false;
     status = VmStatus.stopped;
     _startTime = null;
     notifyListeners();
@@ -220,6 +224,7 @@ class VmState extends ChangeNotifier {
         wssEndpoint = health['wss'] as String? ?? wssEndpoint;
         if (s == 'running') {
           status = VmStatus.running;
+          _starting = false;
           _startTime = null;
         } else if (_isWithinGracePeriod()) {
           // API is up but Asterisk not ready yet — keep showing Starting...

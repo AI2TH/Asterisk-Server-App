@@ -280,7 +280,7 @@ class _VmControlsState extends State<_VmControls> {
           children: [
             Expanded(
               child: FilledButton.icon(
-                onPressed: isRunning || isBusy ? null : () => _run(() async {
+                onPressed: isRunning || isBusy || widget.vm.isStarting ? null : () => _run(() async {
                   await startVm();
                   widget.vm.setStarting();
                 }),
@@ -325,10 +325,10 @@ class _VmControlsState extends State<_VmControls> {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isBusy ? null : () => _run(() async {
+                onPressed: isRunning && !isBusy ? () => _run(() async {
                   await restartVm();
                   widget.vm.setStarting();
-                }),
+                }) : null,
                 icon: const Icon(Icons.refresh_rounded, size: 17),
                 label: const Text('Restart VM'),
               ),
