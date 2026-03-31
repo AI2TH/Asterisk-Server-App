@@ -36,7 +36,7 @@ class VmManager(private val context: Context) {
     val apiClient: VmApiClient by lazy { VmApiClient(token) }
 
     // Bump when base.qcow2.gz changes (forces re-extraction on next launch)
-    private val ASSETS_VERSION = "v1"
+    private val ASSETS_VERSION = "v9"
 
     // -------------------------------------------------------------------------
     // Public API
@@ -207,19 +207,19 @@ class VmManager(private val context: Context) {
      *   8088 TCP  — Asterisk ARI (HTTP)
      *   5060 TCP  — SIP (TCP transport)
      *   5060 UDP  — SIP (UDP transport)
-     *   10000-10019 UDP — RTP media (20 ports = up to 10 concurrent calls)
+     *   10020-10039 UDP — RTP media (20 ports = up to 10 concurrent calls)
      */
     private fun buildNetdev(): String {
         val fwds = mutableListOf(
-            "hostfwd=tcp::7080-:7080",   // FastAPI control server
+            "hostfwd=tcp::7082-:7080",   // FastAPI control server
             "hostfwd=tcp::5038-:5038",   // Asterisk AMI
-            "hostfwd=tcp::8088-:8088",   // ARI + WS (SIP.js ws:)
-            "hostfwd=tcp::8089-:8089",   // WSS TLS (SIP.js wss:) + ARI TLS
-            "hostfwd=tcp::5060-:5060",   // SIP TCP
-            "hostfwd=udp::5060-:5060",   // SIP UDP
+            "hostfwd=tcp::8090-:8088",   // ARI + WS (SIP.js ws:)
+            "hostfwd=tcp::8091-:8089",   // WSS TLS (SIP.js wss:) + ARI TLS
+            "hostfwd=tcp::5062-:5060",   // SIP TCP
+            "hostfwd=udp::5062-:5060",   // SIP UDP
         )
-        for (port in 10000..10019) {
-            fwds.add("hostfwd=udp::$port-:$port")
+        for (port in 10020..10039) {
+            fwds.add("hostfwd=udp::$port-:${port - 20}")
         }
         return "user,id=net0," + fwds.joinToString(",")
     }
@@ -245,21 +245,22 @@ class VmManager(private val context: Context) {
         vmDir.mkdirs()
         bootstrapDir.mkdirs()
 
-        // base.qcow2.gz — aapt2 may pre-decompress .gz and drop the extension
+        // base.qcow2.gz — always re-extract on version bump so updated images are used
+        // aapt2 may pre-decompress .gz and drop the extension
         val baseQcow2 = File(vmDir, "base.qcow2")
-        if (!baseQcow2.exists()) {
-            try {
-                extractAsset("vm/base.qcow2", baseQcow2)
-                Log.d(TAG, "Extracted base.qcow2 (aapt2 pre-decompressed)")
-            } catch (_: Exception) {
-                extractAndDecompress("vm/base.qcow2.gz", baseQcow2)
-                Log.d(TAG, "Extracted + decompressed base.qcow2.gz")
-            }
+        baseQcow2.delete()
+        try {
+            extractAsset("vm/base.qcow2", baseQcow2)
+            Log.d(TAG, "Extracted base.qcow2 (aapt2 pre-decompressed)")
+        } catch (_: Exception) {
+            extractAndDecompress("vm/base.qcow2.gz", baseQcow2)
+            Log.d(TAG, "Extracted + decompressed base.qcow2.gz")
         }
 
         listOf("vmlinuz-virt", "initramfs-virt").forEach { name ->
             val dest = File(vmDir, name)
-            if (!dest.exists()) extractAsset("vm/$name", dest)
+            dest.delete()
+            extractAsset("vm/$name", dest)
         }
 
         listOf("api_server.py", "requirements.txt", "init_bootstrap.sh").forEach { name ->
@@ -297,6 +298,11 @@ class VmManager(private val context: Context) {
         if (!qemuImg.exists()) throw IllegalStateException(
             "libqemu_img.so not found in $nativeLibDir"
         )
+        
+        // Note: On Android 14+ (API 34+), qemu-img triggers an SELinux "avc: denied { ioctl }" 
+        // warning (cmd 0x581f / FS_IOC_FIEMAP) when scanning the base image for sparseness.
+        // This is a non-fatal audit log warning; qemu-img falls back to lseek/read automatically
+        // and creates the user.qcow2 overlay successfully with exitCode 0.
         val proc = ProcessBuilder(
             qemuImg.absolutePath, "create",
             "-f", "qcow2", "-b", baseImagePath, "-F", "qcow2",

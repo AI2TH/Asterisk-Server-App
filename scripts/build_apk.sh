@@ -22,7 +22,6 @@ echo "[zyvr] Building APK (mode: $MODE)..."
 if ! docker image inspect "$BUILDER_IMAGE" &>/dev/null; then
     echo "[zyvr] Building Docker builder image..."
     docker build \
-        --platform linux/amd64 \
         -t "$BUILDER_IMAGE" \
         -f "$DOCKERFILE" \
         "$PROJECT_ROOT"
@@ -38,7 +37,6 @@ if [ -z "$JNILIBS_SRC" ]; then
 fi
 
 docker run --rm \
-    --platform linux/amd64 \
     -v "$PROJECT_ROOT:/workspace" \
     -v "$JNILIBS_SRC:$JNILIBS_DST:ro" \
     -w /workspace \

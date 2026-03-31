@@ -2,7 +2,7 @@
 # Same as Pockr's builder: Ubuntu 22.04 + JDK 17 + Android SDK + Flutter 3.22.2
 # Build: docker build --platform linux/amd64 -t stardial-builder -f docker/Dockerfile.build .
 
-FROM --platform=linux/amd64 ubuntu:22.04
+FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ANDROID_SDK_ROOT=/opt/android-sdk

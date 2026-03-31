@@ -1,10 +1,8 @@
 #!/bin/sh
 # alpine_build_inner.sh — runs INSIDE an arm64 Alpine container (--privileged)
-# Builds a minimal Alpine 3.19 aarch64 rootfs with Asterisk bootstrap scripts.
+# Builds a minimal Alpine 3.19 aarch64 rootfs with Asterisk + Python pre-installed.
+# Packages are baked in at build time so the app works fully offline on first boot.
 # Called by build_alpine_base.sh via Docker.
-#
-# Asterisk + Python are installed at runtime by init_bootstrap.sh (first boot),
-# keeping the base image small and the build fast.
 
 set -e
 
@@ -18,8 +16,8 @@ MINIROOTFS_URL="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/aarch64/alp
 wget -q -O /tmp/minirootfs.tar.gz "$MINIROOTFS_URL"
 echo "Downloaded: $(du -sh /tmp/minirootfs.tar.gz | cut -f1)"
 
-echo "=== Creating 512MB ext4 raw disk ==="
-dd if=/dev/zero of=/tmp/alpine.raw bs=1M count=512 status=none
+echo "=== Creating 2GB ext4 raw disk ==="
+dd if=/dev/zero of=/tmp/alpine.raw bs=1M count=2048 status=none
 mkfs.ext4 -F -L "alpine-root" -m 0 -q /tmp/alpine.raw
 
 mkdir -p /mnt/alpine
@@ -83,7 +81,41 @@ shm /dev/shm tmpfs defaults 0 0
 tmp /tmp tmpfs nosuid,nodev 0 0
 FSTAB
 
-# Bootstrap scripts — Asterisk + API server installed at runtime (first boot)
+# ---------------------------------------------------------------------------
+# Pre-install Asterisk + Python + pip packages via chroot (build-time, offline)
+# ---------------------------------------------------------------------------
+echo "=== Pre-installing Asterisk + Python + pip packages (offline bake) ==="
+mount -t proc  proc     /mnt/alpine/proc
+mount -t sysfs sysfs    /mnt/alpine/sys
+mount -o bind  /dev     /mnt/alpine/dev
+mount -t devpts devpts  /mnt/alpine/dev/pts
+
+chroot /mnt/alpine /bin/sh << 'CHROOT'
+set -e
+apk update
+apk add --no-cache \
+    asterisk \
+    asterisk-sounds-en \
+    asterisk-srtp \
+    openssl \
+    python3 \
+    py3-pip \
+    py3-setuptools
+pip3 install --no-cache-dir --break-system-packages \
+    "fastapi==0.111.0" \
+    "uvicorn[standard]==0.30.1"
+# Clean pip cache to save space
+rm -rf /root/.cache/pip
+CHROOT
+
+umount /mnt/alpine/dev/pts
+umount /mnt/alpine/dev
+umount /mnt/alpine/sys
+umount /mnt/alpine/proc
+
+echo "Rootfs size after pre-install: $(du -sh /mnt/alpine | cut -f1)"
+
+# Bootstrap scripts — cert/config/service setup only (packages already installed)
 echo "=== Copying bootstrap scripts ==="
 mkdir -p /mnt/alpine/bootstrap
 cp /bootstrap_src/api_server.py     /mnt/alpine/bootstrap/
@@ -137,7 +169,7 @@ for svc in killprocs mount-ro savecache; do
         ln -sf /etc/init.d/$svc /mnt/alpine/etc/runlevels/shutdown/$svc || true
 done
 
-echo "Rootfs size: $(du -sh /mnt/alpine | cut -f1)"
+echo "Final rootfs size: $(du -sh /mnt/alpine | cut -f1)"
 df -h /mnt/alpine | tail -1
 
 umount /mnt/alpine
