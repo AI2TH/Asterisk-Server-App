@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# build_apk.sh — Build the Stardial APK inside a Docker container.
-# Usage: ./scripts/build_apk.sh [release|debug]
+# build_aab.sh — Build the Zyvr AAB inside a Docker container.
+# Usage: ./scripts/build_aab.sh [release|debug]
 #
 # Uses the same Ubuntu+Android SDK+Flutter builder image as Pockr.
 # Must use --platform linux/amd64 on Apple Silicon Macs.
 
 set -euo pipefail
 
-MODE="${1:-debug}"
+MODE="${1:-release}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/dist"
@@ -16,7 +16,7 @@ DOCKERFILE="$PROJECT_ROOT/docker/Dockerfile.build"
 
 mkdir -p "$BUILD_DIR"
 
-echo "[zyvr] Building APK (mode: $MODE)..."
+echo "[zyvr] Building AAB (mode: $MODE)..."
 
 # Build the builder image if it doesn't exist or Dockerfile has changed
 if ! docker image inspect "$BUILDER_IMAGE" &>/dev/null; then
@@ -47,9 +47,9 @@ docker run --rm \
         flutter clean && \
         flutter pub get && \
         dart run flutter_launcher_icons && \
-        flutter build apk --$MODE --target-platform android-arm64
+        flutter build appbundle --$MODE --target-platform android-arm64
     "
 
-# Copy APK out after the container exits (avoids flutter clean destroying the bind-mount target)
-cp "$PROJECT_ROOT/build/app/outputs/flutter-apk/app-$MODE.apk" "$BUILD_DIR/zyvr-$MODE.apk"
-echo "[zyvr] APK ready: $BUILD_DIR/zyvr-$MODE.apk"
+# Copy AAB out after the container exits
+cp "$PROJECT_ROOT/build/app/outputs/bundle/${MODE}/app-${MODE}.aab" "$BUILD_DIR/zyvr-$MODE.aab"
+echo "[zyvr] AAB ready: $BUILD_DIR/zyvr-$MODE.aab"
