@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 // ---------------------------------------------------------------------------
 // MethodChannel — talks to Kotlin VmManager via MainActivity
@@ -134,11 +135,13 @@ class Message {
       );
 }
 
-class VmState extends ChangeNotifier {
+class VmState extends ChangeNotifier with WidgetsBindingObserver {
   VmStatus status = VmStatus.stopped;
+  bool _starting = false;
+  bool get isStarting => _starting;
   String asteriskVersion = '';
-  String wsEndpoint  = 'ws://127.0.0.1:8088/asterisk/sip';
-  String wssEndpoint = 'wss://127.0.0.1:8089/asterisk/sip';
+  String wsEndpoint  = 'ws://127.0.0.1:8090/asterisk/sip';
+  String wssEndpoint = 'wss://127.0.0.1:8091/asterisk/sip';
   String certFingerprint = '';
   String wifiIp = '';
 
@@ -152,12 +155,14 @@ class VmState extends ChangeNotifier {
   static const _gracePeriod = Duration(minutes: 10);
 
   void setStarting() {
+    _starting = true;
     status = VmStatus.unknown;
     _startTime = DateTime.now();
     notifyListeners();
   }
 
   void setStopping() {
+    _starting = false;
     status = VmStatus.stopped;
     _startTime = null;
     notifyListeners();
@@ -182,6 +187,7 @@ class VmState extends ChangeNotifier {
       // Process died or grace period expired → startup failed
       status = VmStatus.error;
       _startTime = null;
+      _starting = false;
     } else {
       status = VmStatus.stopped;
     }
@@ -191,12 +197,22 @@ class VmState extends ChangeNotifier {
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _poll());
     _poll();
     _fetchWifiIp();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _poll();
+      _fetchWifiIp();
+    }
   }
 
   Future<void> _fetchWifiIp() async {
@@ -220,6 +236,7 @@ class VmState extends ChangeNotifier {
         wssEndpoint = health['wss'] as String? ?? wssEndpoint;
         if (s == 'running') {
           status = VmStatus.running;
+          _starting = false;
           _startTime = null;
         } else if (_isWithinGracePeriod()) {
           // API is up but Asterisk not ready yet — keep showing Starting...
@@ -227,6 +244,7 @@ class VmState extends ChangeNotifier {
         } else {
           status = VmStatus.stopped;
           _startTime = null;
+          _starting = false;
         }
       }
     } catch (_) {
@@ -240,6 +258,7 @@ class VmState extends ChangeNotifier {
       final data = await _apiGet('/extensions') as List?;
       extensions = (data ?? [])
           .map((e) => Extension.fromJson(Map<String, dynamic>.from(e as Map)))
+          .where((e) => e.name != '1000')
           .toList();
       notifyListeners();
     } catch (_) {}
@@ -321,6 +340,7 @@ class VmState extends ChangeNotifier {
         'context': context,
         'webrtc': webrtc,
       });
+      await reloadAsterisk();
       await refreshExtensions();
       return true;
     } catch (_) {
@@ -331,6 +351,7 @@ class VmState extends ChangeNotifier {
   Future<bool> deleteExtension(String name) async {
     try {
       await _apiDelete('/extensions/$name');
+      await reloadAsterisk();
       await refreshExtensions();
       return true;
     } catch (_) {

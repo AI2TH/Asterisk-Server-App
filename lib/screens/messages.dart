@@ -1,10 +1,46 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../services/sip_service.dart';
 import '../services/vm_platform.dart';
 
 // ---------------------------------------------------------------------------
-// Screen
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// The "other party" in a message from extension 1000's perspective.
+String _contact(Message msg) =>
+    msg.direction == 'sent' ? msg.to : msg.from;
+
+class _Conversation {
+  final String contact;
+  final List<Message> messages;
+
+  _Conversation({required this.contact, required this.messages});
+
+  Message get last => messages.last;
+
+  String get preview => last.body.length > 60
+      ? '${last.body.substring(0, 60)}…'
+      : last.body;
+}
+
+List<_Conversation> _buildConversations(List<Message> all) {
+  final Map<String, List<Message>> byContact = {};
+  for (final m in all) {
+    final key = _contact(m);
+    byContact.putIfAbsent(key, () => []).add(m);
+  }
+  final convos = byContact.entries
+      .map((e) => _Conversation(contact: e.key, messages: e.value))
+      .toList();
+  convos.sort(
+      (a, b) => b.last.timestamp.compareTo(a.last.timestamp));
+  return convos;
+}
+
+// ---------------------------------------------------------------------------
+// Messages screen — conversation list
 // ---------------------------------------------------------------------------
 
 class MessagesScreen extends StatefulWidget {
@@ -25,7 +61,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<VmState>();
-    final msgs = vm.messages;
+    final convos = _buildConversations(vm.messages);
 
     return Scaffold(
       appBar: AppBar(
@@ -34,9 +70,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
           children: [
             const Text('Messages'),
             Text(
-              msgs.isEmpty
-                  ? 'No messages'
-                  : '${msgs.length} message${msgs.length > 1 ? 's' : ''}',
+              convos.isEmpty
+                  ? 'No conversations'
+                  : '${convos.length} conversation${convos.length > 1 ? 's' : ''}',
               style: TextStyle(
                   fontSize: 11, color: Colors.white.withOpacity(0.45)),
             ),
@@ -50,23 +86,27 @@ class _MessagesScreenState extends State<MessagesScreen> {
           ),
         ],
       ),
-      body: msgs.isEmpty
-          ? _EmptyMessagesState(isRunning: vm.status == VmStatus.running)
+      body: convos.isEmpty
+          ? _EmptyState(isRunning: vm.status == VmStatus.running)
           : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              itemCount: msgs.length,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+              itemCount: convos.length,
               separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, i) {
-                final msg = msgs[msgs.length - 1 - i]; // newest first
-                return _MessageCard(
-                  msg: msg,
-                  onDelete: () => _delete(context, vm, msg.id),
-                );
-              },
+              itemBuilder: (ctx, i) => _ConversationTile(
+                convo: convos[i],
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => _ThreadScreen(
+                      contact: convos[i].contact,
+                    ),
+                  ),
+                ),
+              ),
             ),
       floatingActionButton: FloatingActionButton(
         onPressed: vm.status == VmStatus.running
-            ? () => _showSendSheet(context, vm)
+            ? () => _showNewMessageSheet(context, vm)
             : () => ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Start the VM from the Dashboard tab first'),
@@ -78,23 +118,418 @@ class _MessagesScreenState extends State<MessagesScreen> {
             ? const Color(0xFF9C27B0)
             : Colors.grey.shade700,
         foregroundColor: Colors.white,
-        child: const Icon(Icons.send_outlined),
+        child: const Icon(Icons.edit_outlined),
       ),
     );
   }
+}
 
-  Future<void> _delete(BuildContext context, VmState vm, String id) async {
-    final ok = await vm.deleteMessage(id);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(ok ? 'Message deleted' : 'Failed to delete'),
-      backgroundColor: ok ? Colors.green.shade800 : Colors.red.shade800,
-    ));
+class _ConversationTile extends StatelessWidget {
+  final _Conversation convo;
+  final VoidCallback onTap;
+  const _ConversationTile({required this.convo, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(
+        (convo.last.timestamp * 1000).round());
+    final timeStr =
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    final isSent = convo.last.direction == 'sent';
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1C1C2E),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withOpacity(0.07)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: const Color(0xFF9C27B0).withOpacity(0.12),
+                shape: BoxShape.circle,
+                border: Border.all(
+                    color: const Color(0xFF9C27B0).withOpacity(0.25)),
+              ),
+              child: Center(
+                child: Text(
+                  convo.contact,
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFCE93D8),
+                      fontFamily: 'monospace'),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Ext ${convo.contact}',
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600),
+                      ),
+                      const Spacer(),
+                      Text(timeStr,
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.white.withOpacity(0.35))),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      if (isSent)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: Icon(Icons.done_all,
+                              size: 13,
+                              color: convo.last.delivered
+                                  ? Colors.blue
+                                  : Colors.white38),
+                        ),
+                      Expanded(
+                        child: Text(
+                          convo.preview,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.white.withOpacity(0.4)),
+                        ),
+                      ),
+                      Text(
+                        '${convo.messages.length}',
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.white.withOpacity(0.25)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right,
+                size: 18, color: Colors.white24),
+          ],
+        ),
+      ),
+    );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Send sheet (reusable — also called from extensions.dart)
+// Thread screen — chat bubbles + call button
+// ---------------------------------------------------------------------------
+
+class _ThreadScreen extends StatefulWidget {
+  final String contact;
+  const _ThreadScreen({required this.contact});
+
+  @override
+  State<_ThreadScreen> createState() => _ThreadScreenState();
+}
+
+class _ThreadScreenState extends State<_ThreadScreen> {
+  final TextEditingController _ctrl = TextEditingController();
+  final ScrollController _scroll = ScrollController();
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  Future<void> _send(VmState vm) async {
+    final body = _ctrl.text.trim();
+    if (body.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    _ctrl.clear();
+    final ok = await vm.sendMessage(
+      fromExt: kLocalExtension,
+      toExt: widget.contact,
+      body: body,
+    );
+    if (mounted) {
+      setState(() => _sending = false);
+      if (!ok) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Failed to send'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ));
+      } else {
+        _scrollToBottom();
+      }
+    }
+  }
+
+  void _call(SipService sip) {
+    if (!sip.isRegistered) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('SIP not registered — wait for VM to start'),
+        backgroundColor: Colors.deepOrange,
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+    sip.call(widget.contact);
+    // Navigate to calls tab (index 2) by popping back
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vm = context.watch<VmState>();
+    final sip = context.watch<SipService>();
+
+    final msgs = vm.messages
+        .where((m) => _contact(m) == widget.contact)
+        .toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    _scrollToBottom();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Ext ${widget.contact}'),
+            Text('Extension',
+                style: TextStyle(
+                    fontSize: 11, color: Colors.white.withOpacity(0.4))),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Call',
+            icon: Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: sip.isRegistered
+                    ? Colors.green.withOpacity(0.15)
+                    : Colors.white.withOpacity(0.06),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.call_rounded,
+                size: 18,
+                color: sip.isRegistered ? Colors.green : Colors.white38,
+              ),
+            ),
+            onPressed: () => _call(sip),
+          ),
+          const SizedBox(width: 4),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Message bubbles
+          Expanded(
+            child: msgs.isEmpty
+                ? Center(
+                    child: Text(
+                      'No messages yet\nSend one below',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 13, color: Colors.white.withOpacity(0.3)),
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _scroll,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    itemCount: msgs.length,
+                    itemBuilder: (ctx, i) =>
+                        _Bubble(msg: msgs[i]),
+                  ),
+          ),
+
+          // Input bar
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF12121F),
+              border: Border(
+                  top: BorderSide(color: Colors.white.withOpacity(0.07))),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _ctrl,
+                      maxLines: null,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _send(vm),
+                      decoration: InputDecoration(
+                        hintText: 'Message Ext ${widget.contact}…',
+                        hintStyle: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white.withOpacity(0.25)),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide:
+                              BorderSide(color: Colors.white.withOpacity(0.1)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide:
+                              BorderSide(color: Colors.white.withOpacity(0.1)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: const BorderSide(
+                              color: Color(0xFF9C27B0), width: 1.5),
+                        ),
+                        filled: true,
+                        fillColor: const Color(0xFF1C1C2E),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () => _send(vm),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: _sending
+                            ? Colors.white.withOpacity(0.1)
+                            : const Color(0xFF9C27B0),
+                        shape: BoxShape.circle,
+                      ),
+                      child: _sending
+                          ? const Center(
+                              child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white54)))
+                          : const Icon(Icons.send_rounded,
+                              color: Colors.white, size: 20),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Chat bubble
+// ---------------------------------------------------------------------------
+
+class _Bubble extends StatelessWidget {
+  final Message msg;
+  const _Bubble({required this.msg});
+
+  @override
+  Widget build(BuildContext context) {
+    final isSent = msg.direction == 'sent';
+    final dt = DateTime.fromMillisecondsSinceEpoch(
+        (msg.timestamp * 1000).round());
+    final timeStr =
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Align(
+        alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.72),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: isSent
+                  ? const Color(0xFF7B1FA2)
+                  : const Color(0xFF1C1C2E),
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(18),
+                topRight: const Radius.circular(18),
+                bottomLeft: Radius.circular(isSent ? 18 : 4),
+                bottomRight: Radius.circular(isSent ? 4 : 18),
+              ),
+              border: isSent
+                  ? null
+                  : Border.all(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  msg.body,
+                  style: const TextStyle(fontSize: 14, color: Colors.white),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      timeStr,
+                      style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.white.withOpacity(0.45)),
+                    ),
+                    if (isSent) ...[
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.done_all,
+                        size: 12,
+                        color: msg.delivered
+                            ? Colors.blue.shade200
+                            : Colors.white38,
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// New message sheet (compose to a new contact)
 // ---------------------------------------------------------------------------
 
 Future<void> showSendMessageSheet(
@@ -102,21 +537,8 @@ Future<void> showSendMessageSheet(
   VmState vm, {
   String? prefilledTo,
 }) async {
-  if (vm.extensions.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('No extensions registered'),
-        backgroundColor: Colors.deepOrange,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-    return;
-  }
-
-  final extNames = vm.extensions.map((e) => e.name).toList();
-  String? fromExt = extNames.first;
-  String toExt    = prefilledTo ?? (extNames.length > 1 ? extNames[1] : '');
-  final bodyCtrl  = TextEditingController();
+  final toCtrl = TextEditingController(text: prefilledTo ?? '');
+  final bodyCtrl = TextEditingController();
 
   await showModalBottomSheet(
     context: context,
@@ -132,275 +554,108 @@ Future<void> showSendMessageSheet(
         top: 20,
         bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
       ),
-      child: StatefulBuilder(
-        builder: (ctx, setS) => Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 4,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF9C27B0),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 4,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF9C27B0),
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                const SizedBox(width: 10),
-                const Text('Send Message',
-                    style: TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w700)),
-              ],
-            ),
-            const SizedBox(height: 20),
-            // From
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.white.withOpacity(0.1)),
-                borderRadius: BorderRadius.circular(12),
-                color: Colors.white.withOpacity(0.03),
               ),
-              child: Row(
-                children: [
-                  Text('From:  ',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.white.withOpacity(0.5))),
-                  DropdownButton<String>(
-                    value: fromExt,
-                    underline: const SizedBox(),
-                    dropdownColor: const Color(0xFF1C1C2E),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    items: extNames
-                        .map((e) =>
-                            DropdownMenuItem(value: e, child: Text(e)))
-                        .toList(),
-                    onChanged: (v) => setS(() => fromExt = v),
-                  ),
-                ],
-              ),
+              const SizedBox(width: 10),
+              const Text('New Message',
+                  style:
+                      TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: toCtrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'To (extension)',
+              hintText: '1001',
+              prefixIcon: Icon(Icons.person_outline, size: 18),
             ),
-            const SizedBox(height: 12),
-            // To
-            TextField(
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'To (extension)',
-                hintText: '1002',
-                prefixIcon: Icon(Icons.person_outline, size: 18),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: bodyCtrl,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Message',
+              hintText: 'Type your message…',
+              prefixIcon: Padding(
+                padding: EdgeInsets.only(bottom: 42),
+                child: Icon(Icons.message_outlined, size: 18),
               ),
-              controller: TextEditingController(text: toExt),
-              onChanged: (v) => toExt = v.trim(),
+              alignLabelWithHint: true,
             ),
-            const SizedBox(height: 12),
-            // Body
-            TextField(
-              controller: bodyCtrl,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Message',
-                hintText: 'Type your message…',
-                prefixIcon: Padding(
-                  padding: EdgeInsets.only(bottom: 42),
-                  child: Icon(Icons.message_outlined, size: 18),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
                 ),
-                alignLabelWithHint: true,
               ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Cancel'),
-                  ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF9C27B0)),
+                  onPressed: () async {
+                    final to = toCtrl.text.trim();
+                    final body = bodyCtrl.text.trim();
+                    if (to.isEmpty || body.isEmpty) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                          content: Text('Fill in all fields'),
+                          behavior: SnackBarBehavior.floating));
+                      return;
+                    }
+                    Navigator.pop(ctx);
+                    final ok = await vm.sendMessage(
+                      fromExt: kLocalExtension,
+                      toExt: to,
+                      body: body,
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(ok ? 'Message sent' : 'Failed to send'),
+                        backgroundColor:
+                            ok ? Colors.green.shade800 : Colors.red.shade800,
+                      ));
+                    }
+                  },
+                  child: const Text('Send'),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF9C27B0)),
-                    onPressed: () async {
-                      final body = bodyCtrl.text.trim();
-                      final from = fromExt;
-                      final to   = toExt.trim();
-                      if (from == null || to.isEmpty || body.isEmpty) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(
-                              content: Text('Fill in all fields'),
-                              behavior: SnackBarBehavior.floating),
-                        );
-                        return;
-                      }
-                      if (from == to) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(
-                              content: Text('From and To must differ'),
-                              behavior: SnackBarBehavior.floating),
-                        );
-                        return;
-                      }
-                      Navigator.pop(ctx);
-                      final ok = await vm.sendMessage(
-                        fromExt: from,
-                        toExt: to,
-                        body: body,
-                      );
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content:
-                              Text(ok ? 'Message sent' : 'Failed to send'),
-                          backgroundColor: ok
-                              ? Colors.green.shade800
-                              : Colors.red.shade800,
-                        ));
-                      }
-                    },
-                    child: const Text('Send'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+              ),
+            ],
+          ),
+        ],
       ),
     ),
   );
 }
 
-void _showSendSheet(BuildContext context, VmState vm) =>
+void _showNewMessageSheet(BuildContext context, VmState vm) =>
     showSendMessageSheet(context, vm);
 
 // ---------------------------------------------------------------------------
-// Message card — mirrors _CallCard from calls.dart
+// Empty state
 // ---------------------------------------------------------------------------
 
-class _MessageCard extends StatelessWidget {
-  final Message msg;
-  final VoidCallback onDelete;
-  const _MessageCard({required this.msg, required this.onDelete});
-
-  @override
-  Widget build(BuildContext context) {
-    final dt = DateTime.fromMillisecondsSinceEpoch(
-        (msg.timestamp * 1000).round());
-    final timeStr =
-        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    final isSent = msg.direction == 'sent';
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1C1C2E),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFF9C27B0).withOpacity(0.15),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: const Color(0xFF9C27B0).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-              border:
-                  Border.all(color: const Color(0xFF9C27B0).withOpacity(0.25)),
-            ),
-            child: Icon(
-              isSent ? Icons.send_outlined : Icons.sms_outlined,
-              color: const Color(0xFF9C27B0),
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${msg.from}  →  ${msg.to}',
-                  style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 3),
-                Row(
-                  children: [
-                    _Tag(isSent ? 'Sent' : 'Received',
-                        isSent ? Colors.blue : Colors.teal),
-                    const SizedBox(width: 6),
-                    _Tag(timeStr, Colors.white38),
-                    if (isSent) ...[
-                      const SizedBox(width: 6),
-                      _Tag(
-                        msg.delivered ? 'Delivered' : 'Undelivered',
-                        msg.delivered ? Colors.green : Colors.orange,
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  msg.body,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.white.withOpacity(0.4),
-                      fontFamily: 'monospace'),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: Icon(Icons.delete_outline,
-                color: Colors.white.withOpacity(0.3), size: 22),
-            tooltip: 'Delete',
-            onPressed: onDelete,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Tag extends StatelessWidget {
-  final String label;
-  final Color color;
-  const _Tag(this.label, this.color);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(label,
-          style: TextStyle(
-              fontSize: 10,
-              color: color,
-              fontWeight: FontWeight.w500)),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Empty state — mirrors _EmptyCallsState from calls.dart
-// ---------------------------------------------------------------------------
-
-class _EmptyMessagesState extends StatelessWidget {
+class _EmptyState extends StatelessWidget {
   final bool isRunning;
-  const _EmptyMessagesState({required this.isRunning});
+  const _EmptyState({required this.isRunning});
 
   @override
   Widget build(BuildContext context) {
@@ -417,7 +672,7 @@ class _EmptyMessagesState extends StatelessWidget {
             ),
             child: Icon(
               isRunning
-                  ? Icons.message_outlined
+                  ? Icons.chat_bubble_outline
                   : Icons.phone_disabled_outlined,
               size: 30,
               color: Colors.white.withOpacity(0.2),
@@ -425,7 +680,7 @@ class _EmptyMessagesState extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            isRunning ? 'No messages' : 'Asterisk not running',
+            isRunning ? 'No conversations yet' : 'Asterisk not running',
             style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -434,7 +689,7 @@ class _EmptyMessagesState extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             isRunning
-                ? 'Tap + to send a message between extensions'
+                ? 'Tap the compose button to start a conversation'
                 : 'Start the VM from the Dashboard tab',
             style:
                 TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.3)),

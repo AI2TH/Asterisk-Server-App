@@ -32,3 +32,7 @@ service-account-key.json
 
 # Logs
 *.log
+
+# Build artifacts
+*.apk
+*.aab

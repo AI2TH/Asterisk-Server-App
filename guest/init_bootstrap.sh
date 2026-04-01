@@ -1,7 +1,8 @@
 #!/bin/sh
 # init_bootstrap.sh — first-boot setup for Stardial Alpine VM
+# Asterisk + Python + pip packages are pre-installed in the base image.
+# This script only handles: TLS cert, Asterisk config, OpenRC services.
 # Runs once (guarded by /bootstrap/.bootstrapped marker).
-# Subsequent boots: OpenRC starts asterisk and stardial-api services directly.
 
 set -e
 
@@ -20,29 +21,14 @@ fi
 echo "[stardial] === First boot bootstrap starting ==="
 
 # ---------------------------------------------------------------------------
-# 1. Install Asterisk, Python, and TLS tooling
-# ---------------------------------------------------------------------------
-echo "[stardial] Installing packages..."
-apk update
-apk add --no-cache \
-    asterisk \
-    asterisk-sounds-en \
-    asterisk-srtp \
-    openssl \
-    python3 \
-    py3-pip \
-    py3-setuptools
-
-# ---------------------------------------------------------------------------
-# 2. Generate self-signed TLS certificate for WSS
+# 1. Generate self-signed TLS certificate for WSS
 # ---------------------------------------------------------------------------
 echo "[stardial] Generating TLS certificate..."
 mkdir -p "$KEYS_DIR"
-openssl req -x509 -newkey rsa:2048 \
-    -keyout "$KEYS_DIR/asterisk.key" \
-    -out    "$KEYS_DIR/asterisk.pem" \
-    -days   3650 \
-    -nodes \
+openssl genrsa -out "$KEYS_DIR/asterisk.key" 2048
+openssl req -x509 -key "$KEYS_DIR/asterisk.key" \
+    -out "$KEYS_DIR/asterisk.pem" \
+    -days 3650 \
     -subj "/CN=stardial-pbx/O=Stardial/C=US" \
     -addext "subjectAltName=IP:127.0.0.1"
 # Asterisk wants combined PEM for some configs
@@ -51,15 +37,28 @@ chmod 600 "$KEYS_DIR/asterisk.key" "$KEYS_DIR/asterisk-combined.pem"
 echo "[stardial] TLS certificate generated at $KEYS_DIR"
 
 # ---------------------------------------------------------------------------
-# 3. Install Python deps for API server
-# ---------------------------------------------------------------------------
-echo "[stardial] Installing Python packages..."
-pip3 install --no-cache-dir --break-system-packages -r "$BOOTSTRAP_DIR/requirements.txt"
-
-# ---------------------------------------------------------------------------
-# 4. Write Asterisk config files
+# 2. Write Asterisk config files
 # ---------------------------------------------------------------------------
 echo "[stardial] Writing Asterisk configuration..."
+
+# asterisk.conf — master config required for Asterisk to locate /etc/asterisk/
+cat > "$ASTERISK_CONF/asterisk.conf" << 'EOF'
+[directories]
+astetcdir => /etc/asterisk
+astmoddir => /usr/lib/asterisk/modules
+astvarlibdir => /var/lib/asterisk
+astdbdir => /var/lib/asterisk
+astkeydir => /var/lib/asterisk
+astdatadir => /var/lib/asterisk
+astagidir => /var/lib/asterisk/agi-bin
+astspooldir => /var/spool/asterisk
+astrundir => /var/run/asterisk
+astlogdir => /var/log/asterisk
+astsbindir => /usr/sbin
+
+[options]
+verbose=3
+EOF
 
 # pjsip.conf — 4 transports: UDP, TCP, WS, WSS
 cat > "$ASTERISK_CONF/pjsip.conf" << 'EOF'
@@ -89,6 +88,35 @@ protocol=wss
 bind=0.0.0.0:8089
 cert_file=/etc/asterisk/keys/asterisk.pem
 priv_key_file=/etc/asterisk/keys/asterisk.key
+
+[1000]
+type=endpoint
+context=from-internal
+message_context=from-internal-msg
+disallow=all
+allow=opus,ulaw,alaw,g722
+auth=auth1000
+aors=aor_1000
+force_rport=yes
+direct_media=no
+dtls_verify=fingerprint
+dtls_cert_file=/etc/asterisk/keys/asterisk.pem
+dtls_ca_file=/etc/asterisk/keys/asterisk.pem
+dtls_setup=actpass
+ice_support=yes
+media_encryption=dtls
+rtcp_mux=yes
+
+[auth1000]
+type=auth
+auth_type=userpass
+username=1000
+password=zyvr_local_pass
+
+[aor_1000]
+type=aor
+max_contacts=5
+remove_existing=yes
 EOF
 
 # extensions.conf
@@ -167,6 +195,22 @@ password=stardial_ari_pass
 password_format=plain
 EOF
 
+# sorcery.conf — maps pjsip object types to pjsip.conf (required for endpoint loading)
+cat > "$ASTERISK_CONF/sorcery.conf" << 'EOF'
+[res_pjsip]
+endpoint=config,pjsip.conf,criteria=type=endpoint
+auth=config,pjsip.conf,criteria=type=auth
+aor=config,pjsip.conf,criteria=type=aor
+transport=config,pjsip.conf,criteria=type=transport
+global=config,pjsip.conf,criteria=type=global
+domain_alias=config,pjsip.conf,criteria=type=domain_alias
+registration=config,pjsip.conf,criteria=type=registration
+identify=config,pjsip.conf,criteria=type=identify
+
+[res_pjsip_endpoint_identifier_ip]
+identify=config,pjsip.conf,criteria=type=identify
+EOF
+
 # modules.conf — autoload handles pjsip/srtp; no explicit load needed
 # (explicit "load =>" for modules not installed causes Asterisk to abort)
 cat > "$ASTERISK_CONF/modules.conf" << 'EOF'
@@ -185,7 +229,7 @@ console  => notice,warning,error
 EOF
 
 # ---------------------------------------------------------------------------
-# 5. Install API server and message storage helper
+# 3. Install API server and message storage helper
 # ---------------------------------------------------------------------------
 cp "$BOOTSTRAP_DIR/api_server.py" /usr/local/bin/stardial_api.py
 chmod +x /usr/local/bin/stardial_api.py
@@ -195,7 +239,7 @@ mkdir -p /var/lib/asterisk
 echo "[]" > /var/lib/asterisk/messages.json
 
 # ---------------------------------------------------------------------------
-# 6. OpenRC: asterisk service
+# 4. OpenRC: asterisk service
 # ---------------------------------------------------------------------------
 cat > /etc/init.d/asterisk << 'INITEOF'
 #!/sbin/openrc-run
@@ -219,7 +263,7 @@ chmod +x /etc/init.d/asterisk
 rc-update add asterisk default
 
 # ---------------------------------------------------------------------------
-# 7. OpenRC: stardial-api service
+# 5. OpenRC: stardial-api service
 # ---------------------------------------------------------------------------
 cat > /etc/init.d/stardial-api << 'INITEOF'
 #!/sbin/openrc-run
@@ -239,7 +283,7 @@ chmod +x /etc/init.d/stardial-api
 rc-update add stardial-api default
 
 # ---------------------------------------------------------------------------
-# 8. Start services
+# 6. Start services
 # ---------------------------------------------------------------------------
 echo "[stardial] Starting Asterisk..."
 rc-service asterisk start
@@ -266,7 +310,7 @@ echo "[stardial] Starting Stardial API server..."
 rc-service stardial-api start
 
 # ---------------------------------------------------------------------------
-# 9. Mark bootstrap complete
+# 7. Mark bootstrap complete
 # ---------------------------------------------------------------------------
 touch "$MARKER"
 echo "[stardial] === Bootstrap complete ==="

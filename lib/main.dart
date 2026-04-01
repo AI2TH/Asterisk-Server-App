@@ -7,12 +7,16 @@ import 'screens/extensions.dart';
 import 'screens/messages.dart';
 import 'screens/settings.dart';
 import 'screens/terminal.dart';
+import 'services/sip_service.dart';
 import 'services/vm_platform.dart';
 
 void main() {
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => VmState()..startPolling(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => VmState()..startPolling()),
+        ChangeNotifierProvider(create: (_) => SipService()),
+      ],
       child: const ZyvrApp(),
     ),
   );
@@ -140,6 +144,30 @@ class _MainShellState extends State<MainShell> {
     TerminalScreen(),
     SettingsScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<VmState>().addListener(_onVmStateChanged);
+    });
+  }
+
+  void _onVmStateChanged() {
+    final vm = context.read<VmState>();
+    final sip = context.read<SipService>();
+    if (vm.status == VmStatus.running && !sip.isRegistered) {
+      sip.register();
+    } else if (vm.status != VmStatus.running && sip.isRegistered) {
+      sip.unregister();
+    }
+  }
+
+  @override
+  void dispose() {
+    context.read<VmState>().removeListener(_onVmStateChanged);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

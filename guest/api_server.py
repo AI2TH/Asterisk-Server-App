@@ -3,12 +3,10 @@
 FastAPI control server for Asterisk PBX inside Alpine Linux VM.
 Listens on 0.0.0.0:7080 — SLIRP hostfwd delivers connections from Android host.
 
-Token is injected by the Android app via QEMU fw_cfg:
-  -fw_cfg name=opt/api_token,string=<TOKEN>
-Guest reads it from: /sys/firmware/qemu_fw_cfg/by_name/opt/api_token/raw
+Token is injected by the Android app via QEMU -append api_token=<TOKEN>.
+Guest reads it from /proc/cmdline.
 """
 
-import configparser
 import json
 import logging
 import os
@@ -27,10 +25,12 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Stardial Asterisk API", version="1.0.0")
 
-PJSIP_CONF    = "/etc/asterisk/pjsip.conf"
-ASTERISK_LOG  = "/var/log/asterisk/messages"
-CERT_FILE     = "/etc/asterisk/keys/asterisk.pem"
-MESSAGES_FILE = "/var/lib/asterisk/messages.json"
+PJSIP_CONF      = "/etc/asterisk/pjsip.conf"
+ASTERISK_LOG    = "/var/log/asterisk/messages"
+CERT_FILE       = "/etc/asterisk/keys/asterisk.pem"
+KEY_FILE        = "/etc/asterisk/keys/asterisk.key"
+MESSAGES_FILE   = "/var/lib/asterisk/messages.json"
+EXTENSIONS_FILE = "/var/lib/asterisk/extensions.json"
 
 # ---------------------------------------------------------------------------
 # Token loading
@@ -50,6 +50,17 @@ def _load_token() -> str:
                     return t
         except OSError:
             pass
+    # Kernel cmdline: QEMU injects api_token=<TOKEN> via -append
+    try:
+        with open("/proc/cmdline") as f:
+            for part in f.read().split():
+                if part.startswith("api_token="):
+                    t = part[len("api_token="):].strip()
+                    if t:
+                        logger.info("Token loaded from /proc/cmdline")
+                        return t
+    except OSError:
+        pass
     t = os.environ.get("API_TOKEN", "").strip()
     if t:
         logger.info("Token loaded from environment")
@@ -156,16 +167,208 @@ def _ami_send_message(from_ext: str, to_ext: str, body: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Extension storage (JSON-based)
+# ---------------------------------------------------------------------------
+
+
+def _read_user_extensions() -> list:
+    try:
+        with open(EXTENSIONS_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _write_user_extensions(exts: list) -> None:
+    os.makedirs(os.path.dirname(EXTENSIONS_FILE), exist_ok=True)
+    with open(EXTENSIONS_FILE, "w") as f:
+        json.dump(exts, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# pjsip.conf generation (string-based, not configparser)
+# ---------------------------------------------------------------------------
+
+
+def _generate_pjsip_conf(user_exts: list) -> str:
+    """Generate complete pjsip.conf from scratch in proper Asterisk format."""
+    out = []
+
+    def section(name, **kv):
+        out.append(f"[{name}]")
+        for k, v in kv.items():
+            out.append(f"{k}={v}")
+        out.append("")
+
+    section("global",
+        type="global",
+        user_agent="Stardial PBX 1.0",
+        endpoint_identifier_order="username,ip,anonymous",
+    )
+    section("transport-udp", type="transport", protocol="udp", bind="0.0.0.0:5060")
+    section("transport-tcp", type="transport", protocol="tcp", bind="0.0.0.0:5060")
+    section("transport-ws",  type="transport", protocol="ws",  bind="0.0.0.0:8088")
+    section("transport-wss",
+        type="transport", protocol="wss", bind="0.0.0.0:8089",
+        cert_file=CERT_FILE, priv_key_file=KEY_FILE,
+    )
+
+    # App's own extension 1000 (always present)
+    section("1000",
+        type="endpoint",
+        context="from-internal",
+        message_context="from-internal-msg",
+        disallow="all",
+        allow="opus,ulaw,alaw,g722",
+        auth="auth1000",
+        aors="aor_1000",
+        force_rport="yes",
+        direct_media="no",
+        dtls_verify="fingerprint",
+        dtls_cert_file=CERT_FILE,
+        dtls_ca_file=CERT_FILE,
+        dtls_setup="actpass",
+        ice_support="yes",
+        media_encryption="dtls",
+        rtcp_mux="yes",
+    )
+    section("auth1000",
+        type="auth", auth_type="userpass", username="1000", password="zyvr_local_pass",
+    )
+    section("aor_1000",
+        type="aor", max_contacts="5", remove_existing="yes",
+    )
+
+    # User-created extensions
+    for ext in user_exts:
+        name = ext["name"]
+        ep = dict(
+            type="endpoint",
+            context=ext.get("context", "from-internal"),
+            message_context="from-internal-msg",
+            disallow="all",
+            allow="opus,ulaw,alaw,g722",
+            auth=f"auth{name}",
+            aors=f"aor_{name}",
+            force_rport="yes",
+            direct_media="no",
+        )
+        if ext.get("webrtc", True):
+            ep.update(
+                dtls_verify="fingerprint",
+                dtls_cert_file=CERT_FILE,
+                dtls_ca_file=CERT_FILE,
+                dtls_setup="actpass",
+                ice_support="yes",
+                media_encryption="dtls",
+                rtcp_mux="yes",
+            )
+        section(name, **ep)
+        section(f"auth{name}",
+            type="auth", auth_type="userpass",
+            username=name, password=ext["password"],
+        )
+        section(f"aor_{name}",
+            type="aor",
+            max_contacts=str(ext.get("max_contacts", 5)),
+            remove_existing="yes",
+        )
+
+    return "\n".join(out)
+
+
+def _rebuild_pjsip() -> None:
+    """Write pjsip.conf from scratch and reload pjsip module."""
+    user_exts = _read_user_extensions()
+    os.makedirs(os.path.dirname(PJSIP_CONF), exist_ok=True)
+    with open(PJSIP_CONF, "w") as f:
+        f.write(_generate_pjsip_conf(user_exts))
+    try:
+        out = _asterisk("module reload res_pjsip.so", timeout=15)
+        logger.info("pjsip reload: %s", out or "(ok)")
+    except Exception as e:
+        logger.warning("pjsip reload failed: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Startup: rebuild pjsip.conf to ensure it's always correct
+# ---------------------------------------------------------------------------
+
+
+ASTERISK_CONF_FILE  = "/etc/asterisk/asterisk.conf"
+SORCERY_CONF_FILE   = "/etc/asterisk/sorcery.conf"
+SORCERY_CONF_CONTENT = """\
+[res_pjsip]
+endpoint=config,pjsip.conf,criteria=type=endpoint
+auth=config,pjsip.conf,criteria=type=auth
+aor=config,pjsip.conf,criteria=type=aor
+transport=config,pjsip.conf,criteria=type=transport
+global=config,pjsip.conf,criteria=type=global
+domain_alias=config,pjsip.conf,criteria=type=domain_alias
+registration=config,pjsip.conf,criteria=type=registration
+identify=config,pjsip.conf,criteria=type=identify
+"""
+ASTERISK_CONF_CONTENT = """\
+[directories]
+astetcdir => /etc/asterisk
+astmoddir => /usr/lib/asterisk/modules
+astvarlibdir => /var/lib/asterisk
+astdbdir => /var/lib/asterisk
+astkeydir => /var/lib/asterisk
+astdatadir => /var/lib/asterisk
+astagidir => /var/lib/asterisk/agi-bin
+astspooldir => /var/spool/asterisk
+astrundir => /var/run/asterisk
+astlogdir => /var/log/asterisk
+astsbindir => /usr/sbin
+
+[options]
+verbose=3
+"""
+
+
+@app.on_event("startup")
+async def on_startup():
+    # Write sorcery.conf if missing — maps pjsip objects to pjsip.conf
+    if not os.path.exists(SORCERY_CONF_FILE):
+        try:
+            os.makedirs("/etc/asterisk", exist_ok=True)
+            with open(SORCERY_CONF_FILE, "w") as f:
+                f.write(SORCERY_CONF_CONTENT)
+            logger.info("Created %s", SORCERY_CONF_FILE)
+        except Exception as e:
+            logger.warning("sorcery.conf creation failed: %s", e)
+
+    # Write asterisk.conf if missing — without it Asterisk ignores /etc/asterisk/
+    if not os.path.exists(ASTERISK_CONF_FILE):
+        try:
+            os.makedirs("/etc/asterisk", exist_ok=True)
+            with open(ASTERISK_CONF_FILE, "w") as f:
+                f.write(ASTERISK_CONF_CONTENT)
+            logger.info("Created %s — restarting Asterisk", ASTERISK_CONF_FILE)
+            subprocess.run(["rc-service", "asterisk", "restart"], timeout=30)
+            time.sleep(10)  # wait for Asterisk to finish restarting
+            logger.info("Asterisk restarted with asterisk.conf")
+        except Exception as e:
+            logger.warning("asterisk.conf setup failed: %s", e)
+    try:
+        _rebuild_pjsip()
+        logger.info("pjsip.conf rebuilt on startup")
+    except Exception as e:
+        logger.warning("pjsip startup rebuild failed: %s", e)
+
+
+# ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
 
 
 class ExtensionCreate(BaseModel):
-    name: str           # e.g. "1001"
-    password: str       # SIP password
+    name: str
+    password: str
     context: str = "from-internal"
     max_contacts: int = 5
-    webrtc: bool = True  # enable DTLS/SRTP for SIP.js / WebRTC
+    webrtc: bool = True
 
 
 class HangupRequest(BaseModel):
@@ -190,12 +393,9 @@ class MessageSend(BaseModel):
 @app.get("/health")
 def health():
     try:
-        # Check if Asterisk process is running via pidof.
-        # Also check the pidfile as a fallback (covers renamed processes).
         pidof = subprocess.run(["pidof", "asterisk"], capture_output=True, timeout=5)
         running = pidof.returncode == 0
         if not running:
-            # Fallback: check OpenRC pidfile
             try:
                 with open("/var/run/asterisk/asterisk.pid") as _pf:
                     _pid = int(_pf.read().strip())
@@ -204,7 +404,16 @@ def health():
                 running = True
             except Exception:
                 pass
-        version = _asterisk("core show version", timeout=5) if running else ""
+        
+        version = ""
+        if running:
+            try:
+                out = subprocess.run(["asterisk", "-rx", "core show version"], capture_output=True, text=True, timeout=2)
+                if out.returncode == 0:
+                    version = out.stdout.strip()
+            except subprocess.TimeoutExpired:
+                pass
+                
         return {
             "status":  "running" if running else "stopped",
             "version": version or "unknown",
@@ -216,13 +425,12 @@ def health():
 
 
 # ---------------------------------------------------------------------------
-# TLS cert fingerprint (needed by SIP.js for DTLS setup)
+# TLS cert fingerprint
 # ---------------------------------------------------------------------------
 
 
 @app.get("/cert/fingerprint", dependencies=[Depends(require_auth)])
 def cert_fingerprint():
-    """Return SHA-256 fingerprint of the Asterisk TLS cert for SIP.js DTLS config."""
     try:
         result = subprocess.run(
             ["openssl", "x509", "-noout", "-fingerprint", "-sha256", "-in", CERT_FILE],
@@ -235,113 +443,49 @@ def cert_fingerprint():
 
 
 # ---------------------------------------------------------------------------
-# Extensions (PJSIP config management)
+# Extensions
 # ---------------------------------------------------------------------------
-
-
-def _read_pjsip() -> configparser.RawConfigParser:
-    cfg = configparser.RawConfigParser()
-    cfg.optionxform = str  # preserve case
-    cfg.read(PJSIP_CONF)
-    return cfg
-
-
-def _write_pjsip(cfg: configparser.RawConfigParser) -> None:
-    with open(PJSIP_CONF, "w") as f:
-        cfg.write(f)
-    try:
-        _asterisk("module reload res_pjsip.so", timeout=10)
-    except Exception:
-        pass
-
-
-def _list_endpoints(cfg: configparser.RawConfigParser) -> list[str]:
-    return [
-        s for s in cfg.sections()
-        if cfg.get(s, "type", fallback=None) == "endpoint"
-    ]
 
 
 @app.get("/extensions", dependencies=[Depends(require_auth)])
 def list_extensions():
-    cfg = _read_pjsip()
-    result = []
-    for section in _list_endpoints(cfg):
-        result.append({
-            "name":         section,
-            "context":      cfg.get(section, "context", fallback="from-internal"),
-            "max_contacts": cfg.get(f"aor_{section}", "max_contacts", fallback="5"),
-            "webrtc":       cfg.get(section, "dtls_enable", fallback="no") == "yes",
-            "has_auth":     cfg.has_section(f"auth{section}"),
-        })
-    return result
+    return [
+        {
+            "name":    e["name"],
+            "context": e.get("context", "from-internal"),
+            "has_auth": True,
+            "webrtc":  e.get("webrtc", True),
+        }
+        for e in _read_user_extensions()
+    ]
 
 
 @app.post("/extensions", dependencies=[Depends(require_auth)])
 def create_extension(req: ExtensionCreate):
-    cfg = _read_pjsip()
-    name      = req.name
-    auth_name = f"auth{name}"
-    aor_name  = f"aor_{name}"
-
-    if cfg.has_section(name):
-        raise HTTPException(409, f"Extension {name} already exists")
-
-    # Endpoint stanza
-    endpoint: dict = {
-        "type":            "endpoint",
-        "context":         req.context,
-        "message_context": "from-internal-msg",
-        "disallow":        "all",
-        "allow":           "opus,ulaw,alaw,g722",
-        "auth":            auth_name,
-        "aors":            aor_name,
-        "force_rport":     "yes",
-        "direct_media":    "no",
-    }
-
-    if req.webrtc:
-        # DTLS/SRTP settings required by SIP.js / WebRTC (per sipjs.com/guides/server-configuration/asterisk/)
-        endpoint.update({
-            "dtls_enable":    "yes",
-            "dtls_verify":    "fingerprint",
-            "dtls_cert_file": CERT_FILE,
-            "dtls_ca_file":   CERT_FILE,
-            "dtls_setup":     "actpass",
-            "ice_support":    "yes",
-            "media_encryption": "dtls",
-            "rtcp_mux":       "yes",
-        })
-
-    cfg[name]      = endpoint
-    cfg[auth_name] = {
-        "type":       "auth",
-        "auth_type":  "userpass",
-        "username":   name,
-        "password":   req.password,
-    }
-    cfg[aor_name]  = {
-        "type":          "aor",
-        "max_contacts":  str(req.max_contacts),
-        "remove_existing": "yes",
-    }
-
-    _write_pjsip(cfg)
-    return {"name": name, "webrtc": req.webrtc, "created": True}
+    exts = _read_user_extensions()
+    if any(e["name"] == req.name for e in exts):
+        raise HTTPException(409, f"Extension {req.name} already exists")
+    exts.append({
+        "name":         req.name,
+        "password":     req.password,
+        "context":      req.context,
+        "max_contacts": req.max_contacts,
+        "webrtc":       req.webrtc,
+    })
+    _write_user_extensions(exts)
+    _rebuild_pjsip()
+    return {"name": req.name, "webrtc": req.webrtc, "created": True}
 
 
 @app.delete("/extensions/{name}", dependencies=[Depends(require_auth)])
 def delete_extension(name: str):
-    cfg = _read_pjsip()
-    removed = []
-    for section in (name, f"auth{name}", f"aor_{name}"):
-        if cfg.has_section(section):
-            cfg.remove_section(section)
-            removed.append(section)
-    if not removed:
+    exts = _read_user_extensions()
+    new_exts = [e for e in exts if e["name"] != name]
+    if len(new_exts) == len(exts):
         raise HTTPException(404, f"Extension {name} not found")
-    _write_pjsip(cfg)
-    return {"name": name, "removed_sections": removed}
+    _write_user_extensions(new_exts)
+    _rebuild_pjsip()
+    return {"name": name, "removed_sections": [name, f"auth{name}", f"aor_{name}"]}
 
 
 # ---------------------------------------------------------------------------
