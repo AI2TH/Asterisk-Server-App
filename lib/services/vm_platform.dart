@@ -303,7 +303,7 @@ class VmState extends ChangeNotifier {
   Future<void> refreshCertFingerprint() async {
     try {
       final data = await _apiGet('/cert/fingerprint') as Map?;
-      certFingerprint = data?['raw'] as String? ?? '';
+      certFingerprint = data?['fingerprint'] as String? ?? '';
       notifyListeners();
     } catch (_) {}
   }

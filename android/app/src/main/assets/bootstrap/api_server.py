@@ -162,8 +162,10 @@ def cert_fingerprint():
             ["openssl", "x509", "-noout", "-fingerprint", "-sha256", "-in", CERT_FILE],
             capture_output=True, text=True, timeout=5
         )
-        fp = result.stdout.strip().replace("SHA256 Fingerprint=", "").replace(":", "").lower()
-        return {"fingerprint": fp, "raw": result.stdout.strip()}
+        raw = result.stdout.strip()
+        fp = raw.replace("SHA256 Fingerprint=", "").replace(":", "").lower()
+        logger.info("Cert fingerprint: %s", fp)
+        return {"fingerprint": fp}
     except Exception as e:
         raise HTTPException(500, str(e))
 
