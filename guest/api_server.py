@@ -123,15 +123,18 @@ def _ami_send_message(from_ext: str, to_ext: str, body: str) -> bool:
     """Send SIP MESSAGE via AMI MessageSend action to 127.0.0.1:5038."""
     try:
         s = socket.create_connection(("127.0.0.1", 5038), timeout=5)
-        with s:
+        with s, s.makefile("rb") as f:
+
             def _recv_response() -> str:
-                data = b""
-                while b"\r\n\r\n" not in data:
-                    chunk = s.recv(4096)
-                    if not chunk:
+                lines = []
+                while True:
+                    line = f.readline()
+                    if not line:
                         break
-                    data += chunk
-                return data.decode("utf-8", errors="replace")
+                    lines.append(line)
+                    if line == b"\r\n" or (len(lines) == 1 and line.startswith(b"Asterisk Call Manager")):
+                        break
+                return b"".join(lines).decode("utf-8", errors="replace")
 
             _recv_response()  # banner
             s.sendall(
