@@ -32,3 +32,8 @@ service-account-key.json
 
 # Logs
 *.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
