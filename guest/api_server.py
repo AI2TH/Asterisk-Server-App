@@ -12,15 +12,16 @@ import configparser
 import json
 import logging
 import os
+import re
 import socket
 import subprocess
 import time
 import uuid
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Header
+from fastapi import Depends, FastAPI, HTTPException, Header, Path
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -140,9 +141,11 @@ def _ami_send_message(from_ext: str, to_ext: str, body: str) -> bool:
             )
             _recv_response()  # login response
             safe_body = body.replace("\r\n", " ").replace("\n", " ")
+            safe_to = to_ext.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+            safe_from = from_ext.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
             s.sendall((
-                f"Action: MessageSend\r\nTo: pjsip:{to_ext}\r\n"
-                f"From: pjsip:{from_ext}\r\nBody: {safe_body}\r\n\r\n"
+                f"Action: MessageSend\r\nTo: pjsip:{safe_to}\r\n"
+                f"From: pjsip:{safe_from}\r\nBody: {safe_body}\r\n\r\n"
             ).encode())
             resp = _recv_response()
             try:
@@ -167,9 +170,23 @@ class ExtensionCreate(BaseModel):
     max_contacts: int = 5
     webrtc: bool = True  # enable DTLS/SRTP for SIP.js / WebRTC
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v):
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", v):
+            raise ValueError("Invalid extension name")
+        return v
+
 
 class HangupRequest(BaseModel):
     channel: str
+
+    @field_validator("channel")
+    @classmethod
+    def validate_channel(cls, v):
+        if not re.fullmatch(r"[a-zA-Z0-9/._\-@;:]+", v):
+            raise ValueError("Invalid channel name")
+        return v
 
 
 class ExecRequest(BaseModel):
@@ -180,6 +197,13 @@ class MessageSend(BaseModel):
     from_ext: str
     to_ext: str
     body: str
+
+    @field_validator("from_ext", "to_ext")
+    @classmethod
+    def validate_extensions(cls, v):
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", v):
+            raise ValueError("Invalid extension name")
+        return v
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +355,7 @@ def create_extension(req: ExtensionCreate):
 
 
 @app.delete("/extensions/{name}", dependencies=[Depends(require_auth)])
-def delete_extension(name: str):
+def delete_extension(name: str = Path(..., regex=r"^[a-zA-Z0-9_-]+$")):
     cfg = _read_pjsip()
     removed = []
     for section in (name, f"auth{name}", f"aor_{name}"):
